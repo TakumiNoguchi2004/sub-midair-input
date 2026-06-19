@@ -1,0 +1,27 @@
+[project]
+name = "midair-app"
+version = "0.1.0"
+description = "Mid-Air input 統合アプリ (emoji / japanese / english を 1 つに束ねる)"
+requires-python = ">=3.12"
+dependencies = [
+    "midair-shared",
+    "emoji-search",
+    "japanese-search",
+    "english-search",
+]
+
+[project.scripts]
+midair = "midair_app.__main__:main"
+
+[tool.uv.sources]
+midair-shared = { workspace = true }
+emoji-search = { workspace = true }
+japanese-search = { workspace = true }
+english-search = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/midair_app"]

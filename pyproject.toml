@@ -1,7 +1,23 @@
 [project]
 name = "mi-midair-input"
 version = "0.1.0"
-description = "Add your description here"
+description = "Mid-Air Flick input system — emoji / Japanese / English (uv workspace monorepo)"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "midair-app",
+]
+
+[tool.uv]
+# ルートはアプリ群を束ねる環境であり、それ自体はビルドしない
+package = false
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+midair-app = { workspace = true }
+midair-shared = { workspace = true }
+emoji-search = { workspace = true }
+japanese-search = { workspace = true }
+english-search = { workspace = true }

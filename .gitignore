@@ -8,3 +8,17 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Data: 各サブシステムの中身 (画像 / zip / 生成 index) は git 管理外。
+# ディレクトリ構造だけ .gitkeep で残す。
+/data/**
+!/data/**/
+!/data/**/.gitkeep
+
+# Model cache
+.cache/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
