@@ -22,7 +22,7 @@
 ```
 mi-midair-input/
 ├── pyproject.toml              # uv workspace root (package=false, members=packages/*)
-├── README.md / DESIGN.md / CLAUDE.md / DOCKER.md
+├── README.md / CLAUDE.md / DOCKER.md
 ├── Dockerfile / docker-compose.yml / .dockerignore
 ├── packages/
 │   ├── shared/                 # midair-shared: 共通基盤
@@ -100,7 +100,6 @@ docker compose up web                               # http://localhost:8000
 
 ## ドキュメント
 
-- [`DESIGN.md`](DESIGN.md) — 絵文字検索の設計メモ
 - [`DOCKER.md`](DOCKER.md) — Docker でのローカル実行 (Intel Mac / CPU)
 - [`CLAUDE.md`](CLAUDE.md) — システム全体構成 / 開発フロー (git-flow) / エージェント向け指針
 - `packages/*/README.md` — 各サブシステムの詳細

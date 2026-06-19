@@ -36,12 +36,16 @@
 - GPU で index 構築を高速化したいときだけ `UV_TORCH_BACKEND=cu124 uv sync` 等で上書きする (Docker 運用は CPU のまま)。
 - Docker: `data/` はボリュームマウントで永続化、CLIP モデルはイメージに焼き込み (実行時ネット不要)。`MIDAIR_DATA_DIR` で各エントリのデータルートを上書きできる。
 
+### データ配布ルール
+
+- **FAISS index 関連 (`index.faiss` / `metadata.jsonl` / `index_meta.json`) のみ共有ストレージ (Drive 等) に配置**し、各環境はそれを取得して使う (重い CLIP エンコードを各環境で再実行しなくても良いように設計)。
+- **OpenMoji 画像 (`openmoji/`) は Drive に再配布しない** (CC BY-SA 4.0 の再配布手続き回避)。`download_openmoji.py` で公式 Releases から取得する。
+- index はデバイス非依存。検索は `index_meta.json` の `model_id` と同一の CLIP モデルで行う前提。
+
 ## 開発フロー (git-flow)
 
 - **git-flow を採用する。**
-- **現状**: `main` 上で初期開発中 (これは許容)。
-- **一区切りついたら** `feature/emoji_search` ブランチへ移行する。
-- 以降はサブシステムごとに `feature/<name>_search` で並行開発する (`feature/japanese_search`, `feature/english_search`)。
+- サブシステムごとに `feature/<name>_search` で並行開発する (`feature/japanese_search`, `feature/english_search`)。
 - `main` は安定版。機能開発は feature ブランチで行い、完了後にマージする。
 - **commit / push はユーザの明示指示があるときのみ**行う。
 

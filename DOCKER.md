@@ -30,7 +30,7 @@ docker compose build
 > **すでに `./data/emoji_search/` に画像 + index がある場合（別マシンからコピーした場合も含む）は、この手順は不要。** そのまま手順 3 へ。
 > faiss index は**デバイス非依存・移植可能**で、GPU で構築した index も CPU でそのまま使える
 > （CLIP の重みが同じなら GPU/CPU で同じ埋め込み空間。差は無視できる浮動小数誤差のみ）。
-> ただし Web 表示には絵文字画像（`openmoji/`、約18MB）も要るので、`./data/emoji_search/` を**まるごと**持ち込むこと。
+> Web 表示には絵文字画像（`openmoji/`、約18MB）も要る点に注意。**推奨フローは「画像は公式から取得 ＋ index は Drive から取得」**（下記「Drive の index を使う」）。
 
 データが無い新規環境では、OpenMoji 画像の取得と FAISS index 構築をコンテナ内で実行し、結果を `./data` に書き出す。
 
@@ -42,32 +42,41 @@ docker compose --profile setup run --rm prepare
 - index 構築は CPU で 1〜数分（絵文字 約4500枚）。
 - 一度実行すればホストの `./data` に残るので、次回以降は不要。
 
-### Drive 等にアップした成果物を使う（各環境でビルドしない）
+### Drive の index を使う（各環境でビルドしない・推奨ルール）
 
-CLIP エンコード（重い工程）を各環境でやらせたくない場合、構築済み成果物を共有ストレージ
-（Google Drive 等）に置いてダウンロードさせるのが手軽。`index.faiss` / `metadata.jsonl` /
-`index_meta.json` は**デバイス非依存で移植可能**。**同じ CLIP モデル（`index_meta.json` の `model_id`）で
-検索する前提**。Web 表示には絵文字画像（`openmoji/`）も必要な点に注意。
+**配布ルール: FAISS index 関連だけを Drive に置く。OpenMoji 画像は Drive に上げない**
+（画像の再配布は CC BY-SA 4.0 の手続きが要るため避け、公式 Releases から取得する）。
+index (`index.faiss` / `metadata.jsonl` / `index_meta.json`, 約10MB) は**デバイス非依存で移植可能**。
+検索は **同じ CLIP モデル**（`index_meta.json` の `model_id`）で行う前提。
 
-- **(推奨) `data/emoji_search/` をまるごと zip（画像 + index、約28MB）**
-  ```bash
-  # アップ側 (一度だけ)
-  (cd data && zip -r emoji_search.zip emoji_search)
-  # 取得側  (pip install gdown)
-  gdown "<SHARE_URL or FILE_ID>" -O emoji_search.zip
-  mkdir -p data && unzip -o emoji_search.zip -d data
-  ```
-  → 画像も含むので `prepare` も `download_openmoji.py` も不要。
+**アップ側**（index を作った環境で一度だけ）: 共有 Drive フォルダ内に `emoji_search/` を作り、
+`build_index.py` の生成物 3ファイルをその中に**フラットに**置く（リポジトリの `data/` をミラーする構成）。
 
-- **(分割) index 3ファイルだけ Drive、画像はスクリプトで取得**
-  ```bash
-  gdown "<index.faiss URL>"     -O data/emoji_search/index.faiss
-  gdown "<metadata.jsonl URL>"  -O data/emoji_search/metadata.jsonl
-  gdown "<index_meta.json URL>" -O data/emoji_search/index_meta.json
-  python packages/emoji-search/scripts/download_openmoji.py   # 画像のみ取得 (GPU 不要)
-  ```
+- 共有フォルダ: <https://drive.google.com/drive/folders/1ucgsVXXp6jOTWapOPTLsz9i-wpnPS652>
 
-いずれも `./data/emoji_search/` が揃えば、あとは手順 3 の `docker compose up web` だけ。
+```
+<共有フォルダ>/            ← gdown --folder <link> -O data
+└── emoji_search/
+    ├── index.faiss
+    ├── metadata.jsonl
+    └── index_meta.json
+```
+
+（後で `japanese_search/` `english_search/` を兄弟フォルダで足せば、同じコマンドで全サブシステム分が揃う）
+
+**取得側のセットアップ**:
+```bash
+# 1) OpenMoji 画像を公式 Releases から取得 (再配布なし、GPU 不要)
+python packages/emoji-search/scripts/download_openmoji.py     # -> data/emoji_search/{openmoji/, openmoji.json}
+
+# 2) index を Drive フォルダから取得 (data/ をミラー展開、pip install gdown)
+gdown --folder "https://drive.google.com/drive/folders/1ucgsVXXp6jOTWapOPTLsz9i-wpnPS652" -O data
+
+# 3) 起動
+docker compose up web
+```
+
+→ 重い CLIP エンコードは走らず、`data/emoji_search/` が揃えば手順 3 へ。
 
 ## 3. ローカルホストで起動する
 
