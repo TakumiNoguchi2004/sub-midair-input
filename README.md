@@ -22,8 +22,10 @@
 ```
 mi-midair-input/
 ├── pyproject.toml              # uv workspace root (package=false, members=packages/*)
-├── README.md / CLAUDE.md / DOCKER.md
+├── README.md / CLAUDE.md
 ├── Dockerfile / docker-compose.yml / .dockerignore
+├── docs/                        # ドキュメント
+│   └── emoji_search/            #   DOCKER.md / 実験計画 など
 ├── packages/
 │   ├── shared/                 # midair-shared: 共通基盤
 │   │   └── src/midair_shared/
@@ -96,11 +98,12 @@ docker compose --profile setup run --rm prepare     # 初回: データ取得 + 
 docker compose up web                               # http://localhost:8000
 ```
 
-詳細は [`DOCKER.md`](DOCKER.md)。
+詳細は [`docs/emoji_search/DOCKER.md`](docs/emoji_search/DOCKER.md)。
 
 ## ドキュメント
 
-- [`DOCKER.md`](DOCKER.md) — Docker でのローカル実行 (Intel Mac / CPU)
+- [`docs/emoji_search/DOCKER.md`](docs/emoji_search/DOCKER.md) — Docker でのローカル実行 (Intel Mac / CPU)
+- [`docs/emoji_search/experiment-domain-matched-index.md`](docs/emoji_search/experiment-domain-matched-index.md) — 手書きドメインに合わせた index 構築の実験計画 (別デバイス向け指示書)
 - [`CLAUDE.md`](CLAUDE.md) — システム全体構成 / 開発フロー (git-flow) / エージェント向け指針
 - `packages/*/README.md` — 各サブシステムの詳細
 

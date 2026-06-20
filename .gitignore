@@ -18,6 +18,10 @@ wheels/
 # Model cache
 .cache/
 
+# Vendored MediaPipe (JS/wasm/model) — ビルド時に fetch_mediapipe.py で取得する。
+# git には載せず、Dockerfile / スクリプトで再取得する (CLIP モデルと同方針)。
+/packages/web/src/midair_web/static/vendor/
+
 # IDE / OS
 .vscode/
 .idea/

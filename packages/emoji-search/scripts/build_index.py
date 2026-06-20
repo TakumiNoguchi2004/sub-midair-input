@@ -32,7 +32,18 @@ DATA_DIR = Path(os.environ.get("MIDAIR_DATA_DIR") or (REPO_ROOT / "data")) / "em
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build FAISS index from OpenMoji images.")
     parser.add_argument("--metadata", default=str(DATA_DIR / "openmoji.json"))
-    parser.add_argument("--images-dir", default=str(DATA_DIR / "openmoji"))
+    parser.add_argument(
+        "--source-variant",
+        choices=["color", "black"],
+        default="color",
+        help="ベクトル構築に使う画像セット: color=openmoji/ / black=openmoji_black/(線画)。"
+        "表示は常にカラー (metadata は openmoji/ を指す)。",
+    )
+    parser.add_argument(
+        "--images-dir",
+        default=None,
+        help="ベクトル構築に使う画像ディレクトリ。未指定なら --source-variant から決定。",
+    )
     parser.add_argument("--model", default=DEFAULT_MODEL, help="CLIP モデル名")
     parser.add_argument("--index-path", default=str(DATA_DIR / "index.faiss"))
     parser.add_argument("--metadata-out", default=str(DATA_DIR / "metadata.jsonl"))
@@ -40,11 +51,22 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# source-variant -> (画像サブディレクトリ, index_meta に記録する preprocess ラベル)
+SOURCE_VARIANTS = {
+    "color": ("openmoji", "rgba_on_white"),
+    "black": ("openmoji_black", "openmoji_black"),
+}
+
+
 def main() -> None:
     args = parse_args()
 
-    records = load_emoji_records(args.metadata, args.images_dir)
-    print(f"[1/4] loaded {len(records)} emoji records")
+    subdir, preprocess_label = SOURCE_VARIANTS[args.source_variant]
+    images_dir = args.images_dir or str(DATA_DIR / subdir)
+
+    records = load_emoji_records(args.metadata, images_dir)
+    print(f"[1/4] loaded {len(records)} emoji records "
+          f"(source={args.source_variant}, dir={images_dir})")
     if not records:
         raise SystemExit("画像が 1 枚も見つからない。--images-dir / --metadata を確認。")
 
@@ -76,7 +98,7 @@ def main() -> None:
         "dim": encoder.dim,
         "normalize": True,
         "metric": "ip",
-        "preprocess": "rgba_on_white",
+        "preprocess": preprocess_label,
         "count": len(records),
     }
     meta_path = index_path.with_name("index_meta.json")

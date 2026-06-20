@@ -32,6 +32,12 @@
   .card .label { font-size:12px; margin-top:8px; color:var(--fg); }
   .card .score { font-size:11px; color:var(--muted); margin-top:2px; font-variant-numeric:tabular-nums; }
   .card .hex { font-size:10px; color:var(--muted); margin-top:2px; }
+  .cam-wrap { position:relative; width:320px; height:240px; border-radius:8px; overflow:hidden;
+    border:1px solid var(--line); background:#000; }
+  .cam-wrap video, .cam-wrap canvas#overlay { position:absolute; inset:0; width:320px; height:240px;
+    transform: scaleX(-1); }  /* 自撮りミラー表示 */
+  .hint { color:var(--muted); font-size:12px; margin:8px 0 0; line-height:1.5; }
+  #gesture { color:var(--accent); font-size:13px; font-weight:600; }
 </style>
 </head>
 <body>
@@ -58,6 +64,24 @@
         <button class="primary" onclick="searchImage()">この絵で検索</button>
         <button onclick="clearPad()">クリア</button>
       </div>
+    </div>
+
+    <div class="panel">
+      <h2>Mid-Air 入力 (カメラ)</h2>
+      <div class="cam-wrap">
+        <video id="cam" playsinline muted></video>
+        <canvas id="overlay" width="320" height="240"></canvas>
+      </div>
+      <div class="row">
+        <button class="primary" id="camBtn" onclick="toggleCam()">カメラ開始</button>
+        <span id="gesture">—</span>
+      </div>
+      <p class="hint">
+        片手で操作:<br>
+        ・✏️ <b>描く</b> = 親指＋人差し＋中指の3本ピンチ<br>
+        ・✌️ <b>クリア</b> = ピース（人差し＋中指）を0.5秒キープ<br>
+        ・👍 <b>検索</b> = サムズアップ（親指だけ）を0.5秒キープ
+      </p>
     </div>
   </section>
 
@@ -143,6 +167,195 @@ function render(results) {
 
 // Enter で検索
 $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") searchText(); });
+
+// =====================================================================
+//  Mid-Air 入力 (MediaPipe Hand Landmarker / 完全クライアントサイド)
+//  片手・3 動作を排他的な姿勢で分離 (互いに干渉しない):
+//   ✏️ 描く   = 親指+人差し+中指の 3 本ピンチ (連続)
+//   ✌️ クリア = ピース(人差し+中指) を HOLD_MS キープ (単発)
+//   👍 検索   = サムズアップ(親指のみ) を HOLD_MS キープ (単発)
+//  単発はキープ確定+クールダウン+ニュートラル再武装で誤爆を防ぐ。
+//  しきい値は手の大きさで正規化。値は環境で要微調整。
+// =====================================================================
+const MP_ASSET = "/assets/vendor/mediapipe";
+const LM = { WRIST:0, THUMB_IP:3, THUMB_TIP:4, INDEX_MCP:5, INDEX_PIP:6, INDEX_TIP:8,
+             MIDDLE_MCP:9, MIDDLE_PIP:10, MIDDLE_TIP:12, RING_PIP:14, RING_TIP:16,
+             PINKY_PIP:18, PINKY_TIP:20 };
+// --- しきい値 (手の大きさで正規化済み。環境により要微調整) ---
+const PINCH_ON   = 0.55;  // 3本ピンチ(親+人+中)の許容距離: これ未満でペンダウン
+const PINCH_OFF  = 0.80;  // これ超でペンアップ (ヒステリシス)
+const THUMB_OUT  = 1.10;  // 👍 判定: 親指先が手首からこれ以上離れていれば「立っている」
+const EMA        = 0.5;   // 座標平滑化 (0=動かない,1=生値)
+const HOLD_MS    = 500;   // 単発(検索/クリア)の確定キープ時間
+const COOLDOWN_MS= 1000;  // 単発の連発防止
+
+let mpLandmarker = null, mpStream = null, mpRunning = false, mpRaf = null, mpLastTs = -1;
+let mpPenDown = false, mpSmooth = null;                         // 描画(連続)の状態
+let mpHeld = null, mpHoldStart = 0, mpArmed = true, mpLastFire = 0, mpFlash = null;  // 単発の状態機械
+
+const setGesture = (t) => { const g = $("gesture"); if (g) g.textContent = t; };
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+// 指が「伸びている」= 指先が PIP より手首から遠い
+const fingerUp = (lm, tip, pip) => dist(lm[tip], lm[LM.WRIST]) > dist(lm[pip], lm[LM.WRIST]) * 1.05;
+
+// 手の姿勢を 1 つだけに分類する: 'draw' | 'clear' | 'submit' | 'neutral'
+//   排他的な指の伸展パターンで判定し、3 動作が互いに干渉しないようにする。
+function classify(lm) {
+  const scale = dist(lm[LM.WRIST], lm[LM.MIDDLE_MCP]) || 1e-6;
+  const idxUp = fingerUp(lm, LM.INDEX_TIP, LM.INDEX_PIP);
+  const midUp = fingerUp(lm, LM.MIDDLE_TIP, LM.MIDDLE_PIP);
+  const rngUp = fingerUp(lm, LM.RING_TIP, LM.RING_PIP);
+  const pnkUp = fingerUp(lm, LM.PINKY_TIP, LM.PINKY_PIP);
+
+  // ✏️ 描く = 親指・人差し・中指の 3 指先が寄っている (ペングリップ)
+  const dTI = dist(lm[LM.THUMB_TIP], lm[LM.INDEX_TIP]) / scale;
+  const dTM = dist(lm[LM.THUMB_TIP], lm[LM.MIDDLE_TIP]) / scale;
+  const pinch3 = Math.max(dTI, dTM);
+  const drawThresh = mpPenDown ? PINCH_OFF : PINCH_ON;   // ヒステリシス
+  if (pinch3 < drawThresh) return "draw";
+
+  // ✌️ クリア = 人差し+中指を立て、薬指・小指は畳む
+  if (idxUp && midUp && !rngUp && !pnkUp) return "clear";
+
+  // 👍 検索 = 親指だけ立て、他 4 本を畳む
+  const thumbOut = dist(lm[LM.THUMB_TIP], lm[LM.WRIST]) / scale > THUMB_OUT;
+  if (thumbOut && !idxUp && !midUp && !rngUp && !pnkUp) return "submit";
+
+  return "neutral";
+}
+
+async function ensureLandmarker() {
+  if (mpLandmarker) return mpLandmarker;
+  setGesture("モデル読み込み中…");
+  const vision = await import(`${MP_ASSET}/vision_bundle.mjs`);
+  const fileset = await vision.FilesetResolver.forVisionTasks(`${MP_ASSET}/wasm`);
+  mpLandmarker = await vision.HandLandmarker.createFromOptions(fileset, {
+    baseOptions: { modelAssetPath: `${MP_ASSET}/hand_landmarker.task` },
+    runningMode: "VIDEO",
+    numHands: 1,
+  });
+  return mpLandmarker;
+}
+
+async function toggleCam() {
+  if (mpRunning) { stopCam(); return; }
+  try {
+    await ensureLandmarker();
+    mpStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+    const v = $("cam");
+    v.srcObject = mpStream;
+    await v.play();
+    mpRunning = true;
+    $("camBtn").textContent = "カメラ停止";
+    setGesture("検出中…");
+    mpLoop();
+  } catch (e) {
+    setGesture("カメラエラー: " + (e.message || e));
+  }
+}
+
+function stopCam() {
+  mpRunning = false;
+  if (mpRaf) cancelAnimationFrame(mpRaf);
+  if (mpStream) mpStream.getTracks().forEach((t) => t.stop());
+  mpStream = null; mpPenDown = false; mpSmooth = null;
+  mpHeld = null; mpArmed = true; mpFlash = null;
+  $("camBtn").textContent = "カメラ開始";
+  setGesture("—");
+  const o = $("overlay"); o.getContext("2d").clearRect(0, 0, o.width, o.height);
+}
+
+function mpLoop() {
+  if (!mpRunning) return;
+  const v = $("cam");
+  if (v.readyState >= 2) {
+    const ts = performance.now();
+    if (ts !== mpLastTs) {
+      mpLastTs = ts;
+      handleHands(mpLandmarker.detectForVideo(v, ts));
+    }
+  }
+  mpRaf = requestAnimationFrame(mpLoop);
+}
+
+function endPen() { mpPenDown = false; mpSmooth = null; }
+
+function handleHands(res) {
+  const overlay = $("overlay"), octx = overlay.getContext("2d");
+  octx.clearRect(0, 0, overlay.width, overlay.height);
+  const lm = res.landmarks && res.landmarks[0];
+  if (!lm) { setGesture("手が見えません"); endPen(); mpHeld = null; return; }
+
+  const mode = classify(lm);
+  const now = performance.now();
+
+  // ---- ✏️ 描画 (連続): 3 本ピンチの間だけペンを下ろす ----
+  if (mode === "draw") {
+    // ペン先 = 人差し+中指の中点 (左右反転して自撮り感覚に合わせる)
+    const ix = (lm[LM.INDEX_TIP].x + lm[LM.MIDDLE_TIP].x) / 2;
+    const iy = (lm[LM.INDEX_TIP].y + lm[LM.MIDDLE_TIP].y) / 2;
+    const cx = (1 - ix) * canvas.width, cy = iy * canvas.height;
+    if (!mpPenDown) { mpPenDown = true; mpSmooth = { x: cx, y: cy }; ctx.beginPath(); ctx.moveTo(cx, cy); }
+    else {
+      mpSmooth.x += (cx - mpSmooth.x) * EMA; mpSmooth.y += (cy - mpSmooth.y) * EMA;
+      ctx.lineTo(mpSmooth.x, mpSmooth.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(mpSmooth.x, mpSmooth.y);
+    }
+  } else {
+    endPen();
+  }
+
+  // ---- ✌️ クリア / 👍 検索 (単発): 同じ姿勢を HOLD_MS キープで確定 ----
+  let charge = 0;
+  if (mode === "clear" || mode === "submit") {
+    if (mpHeld !== mode) { mpHeld = mode; mpHoldStart = now; }   // 姿勢が変わったらタイマ再start
+    if (mpArmed && now - mpLastFire > COOLDOWN_MS) {
+      charge = Math.min(1, (now - mpHoldStart) / HOLD_MS);
+      if (charge >= 1) {                                          // 確定 -> 1 回だけ発火
+        mpArmed = false; mpLastFire = now; mpHeld = null; charge = 0;
+        if (mode === "clear") { clearPad(); mpFlash = { text: "🧹 クリア", until: now + 500 }; }
+        else { searchImage(); mpFlash = { text: "🔍 検索", until: now + 500 }; }
+      }
+    }
+  } else {
+    mpHeld = null;
+    mpArmed = true;   // ニュートラル/描画に戻ったら再武装 (キープ放しで次が撃てる)
+  }
+
+  drawOverlay(octx, lm, overlay, mode, charge, now);
+  setGesture(
+    mode === "draw"   ? "✏️ 描画中" :
+    mode === "clear"  ? "✌️ クリア構え (キープ)" :
+    mode === "submit" ? "👍 検索構え (キープ)" : "🖐 待機");
+}
+
+function drawOverlay(octx, lm, overlay, mode, charge, now) {
+  const W = overlay.width, H = overlay.height;
+  // ランドマーク点
+  octx.fillStyle = "rgba(154,163,178,0.85)";
+  for (const p of lm) { octx.beginPath(); octx.arc(p.x * W, p.y * H, 3, 0, Math.PI * 2); octx.fill(); }
+  // ペン先 (人差し+中指の中点)。描画中は赤
+  const px = ((lm[LM.INDEX_TIP].x + lm[LM.MIDDLE_TIP].x) / 2) * W;
+  const py = ((lm[LM.INDEX_TIP].y + lm[LM.MIDDLE_TIP].y) / 2) * H;
+  octx.fillStyle = mode === "draw" ? "#ff5b5b" : "#5bff8c";
+  octx.beginPath(); octx.arc(px, py, 7, 0, Math.PI * 2); octx.fill();
+  // 充電リング (検索/クリアのキープ進捗)
+  if (charge > 0) {
+    octx.strokeStyle = mode === "clear" ? "#ffd15b" : "#5b8cff";
+    octx.lineWidth = 5;
+    octx.beginPath();
+    octx.arc(px, py, 18, -Math.PI / 2, -Math.PI / 2 + charge * 2 * Math.PI);
+    octx.stroke();
+  }
+  // 発火フラッシュ (overlay は CSS でミラーなので文字だけ反転して戻す)
+  if (mpFlash && now < mpFlash.until) {
+    octx.fillStyle = "rgba(0,0,0,0.5)"; octx.fillRect(0, 0, W, H);
+    octx.save(); octx.scale(-1, 1);
+    octx.fillStyle = "#fff"; octx.font = "bold 22px system-ui"; octx.textAlign = "center";
+    octx.fillText(mpFlash.text, -W / 2, H / 2);
+    octx.restore();
+  }
+}
 </script>
 </body>
 </html>

@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
+import mimetypes
 import os
 import uuid
 from dataclasses import dataclass, field
@@ -19,6 +20,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel
 
@@ -32,6 +34,12 @@ DATA_DIR = _DATA_ROOT / "emoji_search"
 STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="Mid-Air Emoji Search")
+
+# ES モジュール (.mjs) / wasm を正しい MIME で配信する (ブラウザの module / wasm 読込に必須)。
+mimetypes.add_type("text/javascript", ".mjs")
+mimetypes.add_type("application/wasm", ".wasm")
+# static/ 配下 (vendor の MediaPipe 等) を /assets で配信する。
+app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
 
 # --- 重い searcher は遅延ロード (CLIP モデル + index は初回検索時に 1 度だけ) ---
 _searcher: EmojiSearcher | None = None

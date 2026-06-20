@@ -30,6 +30,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # 3) CLIP モデル (ViT-B/32) をイメージに焼き込む -> 実行時のダウンロード不要
 RUN python -c "from transformers import CLIPModel, CLIPProcessor; m='openai/clip-vit-base-patch32'; CLIPModel.from_pretrained(m); CLIPProcessor.from_pretrained(m)"
 
+# 3b) MediaPipe (Hand Landmarker) の JS/wasm/モデルを static/vendor に焼き込む
+#     -> ブラウザの Mid-Air 入力 (手検出) も実行時ネット不要 (完全オフライン)
+RUN python packages/web/scripts/fetch_mediapipe.py
+
 # モデルを焼き込んだので実行時はオフライン固定 (ネット無し環境でも確実に動く)
 ENV HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1

@@ -31,7 +31,7 @@
 
 ## 実行環境 (ローカル / Docker)
 
-- **配布ターゲットは Intel Mac (linux/amd64, GPU 無し)**。環境依存を抑えるため Docker ベースで動かす (`DOCKER.md`)。
+- **配布ターゲットは Intel Mac (linux/amd64, GPU 無し)**。環境依存を抑えるため Docker ベースで動かす (`docs/emoji_search/DOCKER.md`)。
 - torch は **CPU 版が既定**: `pyproject.toml` の `[[tool.uv.index]] pytorch-cpu` + emoji-search の `torch = { index = "pytorch-cpu" }`。`uv.lock` も CPU 解決済み (nvidia-* を含まない)。
 - GPU で index 構築を高速化したいときだけ `UV_TORCH_BACKEND=cu124 uv sync` 等で上書きする (Docker 運用は CPU のまま)。
 - Docker: `data/` はボリュームマウントで永続化、CLIP モデルはイメージに焼き込み (実行時ネット不要)。`MIDAIR_DATA_DIR` で各エントリのデータルートを上書きできる。
