@@ -102,6 +102,7 @@ docker compose up web                               # http://localhost:8762
 
 ## ドキュメント
 
+- [`docs/architecture.md`](docs/architecture.md) — 全体構成 / 各 packages のスコープと境界 / 統合の継ぎ目
 - [`docs/emoji_search/DOCKER.md`](docs/emoji_search/DOCKER.md) — Docker でのローカル実行 (Intel Mac / CPU)
 - [`docs/emoji_search/experiment-domain-matched-index.md`](docs/emoji_search/experiment-domain-matched-index.md) — 手書きドメインに合わせた index 構築の実験計画 (別デバイス向け指示書)
 - [`CLAUDE.md`](CLAUDE.md) — システム全体構成 / 開発フロー (git-flow) / エージェント向け指針
