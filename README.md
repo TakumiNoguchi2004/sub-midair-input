@@ -100,6 +100,7 @@ docker compose build                                # イメージ作成
 docker compose --profile setup run --rm fetch       # 基本: 画像(公式) + V4 index(Drive) を取得
 # 代替(Drive を使わずローカル構築): docker compose --profile setup run --rm prepare
 docker compose up web                               # http://localhost:8762
+# 8762 が埋まっている環境は空きポートを自動選択: scripts/run-web.sh
 ```
 
 詳細は [`docs/emoji_search/DOCKER.md`](docs/emoji_search/DOCKER.md)。

@@ -88,11 +88,18 @@ docker compose up web
 ## 3. ローカルホストで起動する
 
 ```bash
-docker compose up web          # フォアグラウンド
+docker compose up web          # フォアグラウンド (ホスト 8762)
 docker compose up -d web       # バックグラウンド
 ```
 
-ブラウザで **http://localhost:8762** を開く。テキスト入力 / 手書きキャンバスで検索できる。
+**8762 が他で使われている環境**は、空きポートを自動で選んで起動するラッパーを使う:
+```bash
+scripts/run-web.sh             # 8762 から空きを探して起動し、URL を表示
+scripts/run-web.sh -d          # バックグラウンド (追加引数は compose に渡る)
+MIDAIR_WEB_PORT=9000 docker compose up web   # 手動でポート指定する場合
+```
+
+ブラウザで表示された **http://localhost:&lt;ポート&gt;**（既定 8762）を開く。テキスト入力 / 手書きキャンバスで検索できる。
 
 停止:
 ```bash
@@ -142,7 +149,7 @@ docker compose run --rm -p 8762:8000 \
 
 | 症状 | 対処 |
 |------|------|
-| `address already in use` (8762) | 他プロセスがホスト 8762 を使用。`docker-compose.yml` の `ports` の左を別番号 (例 `"9000:8000"`) に変更 |
+| `address already in use` / `port is already allocated` (8762) | `scripts/run-web.sh`（空きポート自動選択）で起動するか、`MIDAIR_WEB_PORT=9000 docker compose up web` で別番号を指定 |
 | 検索が `index が見つかりません` | 手順 2 (prepare) を未実行。`docker compose --profile setup run --rm prepare` |
 | Apple Silicon で遅い | amd64 エミュレーションのため。Intel Mac ならネイティブで高速 |
 | イメージを作り直したい | `docker compose build --no-cache` |
