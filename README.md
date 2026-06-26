@@ -82,10 +82,12 @@ uv run midair --mode english  --query "..."   # 未実装 (スケルトン)
 ## 使い方 (Web アプリ)
 
 ```bash
+# カメラの Mid-Air 入力 (手ジェスチャ) を使う場合のみ、先に MediaPipe を取得 (Docker は自動)
+uv run python packages/web/scripts/fetch_mediapipe.py
 uv run midair-web                 # http://127.0.0.1:8762 (既定ポート 8762)
 ```
 
-テキスト入力と手書きキャンバスの 2 入力に対応。結果は絵文字画像のグリッドで表示し、
+テキスト入力・手書きキャンバスに加え、カメラの Mid-Air 入力に対応。結果は絵文字画像のグリッドで表示し、
 検索は非同期ジョブでバックグラウンド実行する。詳細は [`packages/web/README.md`](packages/web/README.md)。
 
 ## Docker で動かす (Intel Mac / GPU 無し)
