@@ -1,0 +1,45 @@
+# Intel Mac 等でのローカル実行用。詳しい手順は DOCKER.md を参照。
+services:
+  # Web アプリ (テキスト / 手書き検索)。http://localhost:8762
+  web:
+    build:
+      context: .
+    image: midair-input:latest
+    platform: linux/amd64
+    ports:
+      # ホスト側は 8000/8080 等の定番を避け、衝突しにくい 8762 を既定にする
+      # (コンテナ内部は 8000 のまま)。MIDAIR_WEB_PORT で上書き可。
+      # 空きポートを自動で選ぶなら scripts/run-web.sh を使う。
+      - "${MIDAIR_WEB_PORT:-8762}:8000"
+    volumes:
+      - ./data:/app/data          # 画像 + index をホストと共有 (永続)
+    restart: unless-stopped
+
+  # 基本: 表示用カラー画像を公式から + V4(線画) index を Drive から取得 (各環境で CLIP 推論しない)。
+  #   docker compose --profile setup run --rm fetch
+  #   別フォルダにしたいときは MIDAIR_INDEX_URL を環境変数で上書き。
+  fetch:
+    image: midair-input:latest
+    build:
+      context: .
+    platform: linux/amd64
+    profiles: ["setup"]
+    volumes:
+      - ./data:/app/data
+    command: >
+      sh -lc "python packages/emoji-search/scripts/download_openmoji.py &&
+              gdown --folder '${MIDAIR_INDEX_URL:-https://drive.google.com/drive/folders/1ucgsVXXp6jOTWapOPTLsz9i-wpnPS652}' -O data"
+
+  # 代替: Drive を使わず、コンテナ内の CLIP 推論で V4(線画) index を構築 (重い)。
+  #   docker compose --profile setup run --rm prepare
+  prepare:
+    image: midair-input:latest
+    build:
+      context: .
+    platform: linux/amd64
+    profiles: ["setup"]
+    volumes:
+      - ./data:/app/data
+    command: >
+      sh -lc "python packages/emoji-search/scripts/download_openmoji.py --variant both &&
+              python packages/emoji-search/scripts/build_index.py --source-variant black"

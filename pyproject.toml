@@ -1,7 +1,32 @@
 [project]
 name = "mi-midair-input"
 version = "0.1.0"
-description = "Add your description here"
+description = "Mid-Air Flick input system — emoji / Japanese / English (uv workspace monorepo)"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "midair-app",
+    "midair-web",
+]
+
+[tool.uv]
+# ルートはアプリ群を束ねる環境であり、それ自体はビルドしない
+package = false
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+# CPU 版 torch を既定にする (Intel Mac / Docker など GPU 無し環境向け)。
+# GPU 環境で使いたい場合は `UV_TORCH_BACKEND=cu124 uv sync` 等で上書きする。
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+midair-app = { workspace = true }
+midair-web = { workspace = true }
+midair-shared = { workspace = true }
+emoji-search = { workspace = true }
+japanese-search = { workspace = true }
+english-search = { workspace = true }

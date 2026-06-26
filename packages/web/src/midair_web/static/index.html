@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mid-Air Emoji Search</title>
+<style>
+  :root { --bg:#0f1115; --panel:#1a1d24; --line:#2a2f3a; --fg:#e6e9ef; --muted:#9aa3b2; --accent:#5b8cff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  header { padding:18px 24px; border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:18px; }
+  header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
+  main { display:grid; grid-template-columns: 360px 1fr; gap:0; min-height: calc(100vh - 64px); }
+  .inputs { padding:20px; border-right:1px solid var(--line); display:flex; flex-direction:column; gap:24px; }
+  .panel h2 { margin:0 0 10px; font-size:14px; color:var(--muted); font-weight:600; }
+  input[type=text] { width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--line);
+    background:var(--panel); color:var(--fg); font-size:15px; }
+  .row { display:flex; gap:8px; margin-top:10px; align-items:center; }
+  button { padding:9px 14px; border-radius:8px; border:1px solid var(--line); background:var(--panel);
+    color:var(--fg); font-size:14px; cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  button:hover { filter:brightness(1.1); }
+  canvas { background:#fff; border-radius:8px; border:1px solid var(--line); touch-action:none; cursor:crosshair; }
+  label.k { color:var(--muted); font-size:13px; }
+  .results-wrap { padding:20px; }
+  #status { color:var(--muted); font-size:13px; min-height:18px; margin-bottom:12px; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(120px,1fr)); gap:12px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px;
+    display:flex; flex-direction:column; align-items:center; text-align:center; }
+  .card img { width:64px; height:64px; image-rendering:auto; }
+  .card .label { font-size:12px; margin-top:8px; color:var(--fg); }
+  .card .score { font-size:11px; color:var(--muted); margin-top:2px; font-variant-numeric:tabular-nums; }
+  .card .hex { font-size:10px; color:var(--muted); margin-top:2px; }
+  .cam-wrap { position:relative; width:320px; height:240px; border-radius:8px; overflow:hidden;
+    border:1px solid var(--line); background:#000; }
+  .cam-wrap video, .cam-wrap canvas#overlay { position:absolute; inset:0; width:320px; height:240px;
+    transform: scaleX(-1); }  /* 自撮りミラー表示 */
+  /* カメラ映像は表示せず白背景にし、その上に手のランドマークだけ描く */
+  .cam-wrap video { visibility:hidden; }
+  .cam-wrap canvas#overlay { background:#fff; border:none; border-radius:0; }
+  /* 手書き窓 + その上に重ねるポインタ用透明キャンバス */
+  .pad-wrap { position:relative; width:320px; height:320px; }
+  .pad-wrap #pad { position:absolute; inset:0; }
+  .pad-wrap #padCursor { position:absolute; inset:0; background:transparent; border:none;
+    border-radius:0; pointer-events:none; }  /* 描画には混ざらない (検索画像にも写らない) */
+  .hint { color:var(--muted); font-size:12px; margin:8px 0 0; line-height:1.5; }
+  #gesture { color:var(--accent); font-size:13px; font-weight:600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Mid-Air Emoji Search</h1>
+  <p>テキスト or 手書きで絵文字を検索（非同期バックグラウンド処理）</p>
+</header>
+<main>
+  <section class="inputs">
+    <div class="panel">
+      <h2>テキスト検索</h2>
+      <input id="q" type="text" placeholder="例: smiling cat / red heart / fire" />
+      <div class="row">
+        <button class="primary" onclick="searchText()">検索</button>
+        <label class="k">top-k</label>
+        <input id="topk" type="text" value="12" style="width:56px" />
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>手書き検索</h2>
+      <div class="pad-wrap">
+        <canvas id="pad" width="320" height="320"></canvas>
+        <canvas id="padCursor" width="320" height="320"></canvas>
+      </div>
+      <div class="row">
+        <button class="primary" onclick="searchImage()">この絵で検索</button>
+        <button onclick="clearPad()">クリア</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Mid-Air 入力 (カメラ)</h2>
+      <div class="cam-wrap">
+        <video id="cam" playsinline muted></video>
+        <canvas id="overlay" width="320" height="240"></canvas>
+      </div>
+      <div class="row">
+        <button class="primary" id="camBtn" onclick="toggleCam()">カメラ開始</button>
+        <span id="gesture">—</span>
+      </div>
+      <p class="hint">
+        片手で操作:<br>
+        ・✏️ <b>描く</b> = 親指＋人差し＋中指の3本ピンチ<br>
+        ・✌️ <b>検索</b> = ピース（人差し＋中指）を0.5秒キープ<br>
+        ・☝️ <b>クリア</b> = 人差し指だけを立てて0.5秒キープ
+      </p>
+    </div>
+  </section>
+
+  <section class="results-wrap">
+    <div id="status"></div>
+    <div id="grid" class="grid"></div>
+  </section>
+</main>
+
+<script>
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const $ = (id) => document.getElementById(id);
+const setStatus = (t) => { $("status").textContent = t; };
+const topK = () => Math.max(1, parseInt($("topk").value, 10) || 12);
+
+// --- 手書きキャンバス ---
+const canvas = $("pad");
+const ctx = canvas.getContext("2d");
+function clearPad() { ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+clearPad();
+ctx.lineWidth = 10; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#000";
+let drawing = false;
+function posOf(e) {
+  const r = canvas.getBoundingClientRect();
+  const t = e.touches ? e.touches[0] : e;
+  return { x: (t.clientX - r.left) * canvas.width / r.width, y: (t.clientY - r.top) * canvas.height / r.height };
+}
+function start(e) { drawing = true; const p = posOf(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); e.preventDefault(); }
+function move(e) { if (!drawing) return; const p = posOf(e); ctx.lineTo(p.x, p.y); ctx.stroke(); e.preventDefault(); }
+function end() { drawing = false; }
+canvas.addEventListener("mousedown", start);
+canvas.addEventListener("mousemove", move);
+window.addEventListener("mouseup", end);
+canvas.addEventListener("touchstart", start, { passive: false });
+canvas.addEventListener("touchmove", move, { passive: false });
+canvas.addEventListener("touchend", end);
+
+// --- 非同期検索 (job 投入 -> ポーリング) ---
+async function runJob(url, body) {
+  setStatus("検索中…");
+  $("grid").innerHTML = "";
+  try {
+    const res = await fetch(url, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    const { job_id } = await res.json();
+    while (true) {
+      await sleep(300);
+      const job = await (await fetch(`/api/jobs/${job_id}`)).json();
+      if (job.status === "done") { render(job.results); setStatus(`${job.results.length} 件`); return; }
+      if (job.status === "error") { setStatus("エラー: " + job.error); return; }
+    }
+  } catch (e) {
+    setStatus("通信エラー: " + e);
+  }
+}
+
+function searchText() {
+  const q = $("q").value.trim();
+  if (!q) { setStatus("テキストを入力してください"); return; }
+  runJob("/api/search/text", { query: q, top_k: topK() });
+}
+
+function searchImage() {
+  const dataUrl = canvas.toDataURL("image/png");
+  runJob("/api/search/image", { image: dataUrl, top_k: topK() });
+}
+
+function render(results) {
+  const grid = $("grid");
+  grid.innerHTML = "";
+  for (const r of results) {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+      <img src="${r.image_url}" alt="${r.label}" loading="lazy" />
+      <div class="label">${r.emoji} ${r.label}</div>
+      <div class="score">score ${r.score}</div>
+      <div class="hex">${r.id}</div>`;
+    grid.appendChild(card);
+  }
+}
+
+// Enter で検索
+$("q").addEventListener("keydown", (e) => { if (e.key === "Enter") searchText(); });
+
+// =====================================================================
+//  Mid-Air 入力 (MediaPipe Hand Landmarker / 完全クライアントサイド)
+//  片手・3 動作を排他的な姿勢で分離 (互いに干渉しない):
+//   ✏️ 描く   = 親指+人差し+中指の 3 本ピンチ (連続)
+//   ✌️ 検索   = ピース(人差し+中指) を HOLD_MS キープ (単発)
+//   ☝️ クリア = 人差し指のみを立てて HOLD_MS キープ (単発)
+//  単発はキープ確定+クールダウン+ニュートラル再武装で誤爆を防ぐ。
+//  しきい値は手の大きさで正規化。値は環境で要微調整。
+// =====================================================================
+const MP_ASSET = "/assets/vendor/mediapipe";
+const LM = { WRIST:0, THUMB_IP:3, THUMB_TIP:4, INDEX_MCP:5, INDEX_PIP:6, INDEX_TIP:8,
+             MIDDLE_MCP:9, MIDDLE_PIP:10, MIDDLE_TIP:12, RING_PIP:14, RING_TIP:16,
+             PINKY_PIP:18, PINKY_TIP:20 };
+// --- しきい値 (手の大きさで正規化済み。環境により要微調整) ---
+const PINCH_ON   = 0.55;  // 3本ピンチ(親+人+中)の許容距離: これ未満でペンダウン
+const PINCH_OFF  = 0.80;  // これ超でペンアップ (ヒステリシス)
+const EMA        = 0.5;   // 座標平滑化 (0=動かない,1=生値)
+const HOLD_MS    = 500;   // 単発(検索/クリア)の確定キープ時間
+const COOLDOWN_MS= 1000;  // 単発の連発防止
+const POINTER_STYLE = "laser";  // 手書き窓のポインタ: "laser"(PowerPoint風) | "crosshair"(細い黒十字)
+
+let mpLandmarker = null, mpStream = null, mpRunning = false, mpRaf = null, mpLastTs = -1;
+let mpPenDown = false;                                          // 描画(連続)の状態
+let mpCursor = null;                                            // ペン先の平滑化座標 (canvas px, 全モード共通)
+let mpHeld = null, mpHoldStart = 0, mpArmed = true, mpLastFire = 0, mpFlash = null;  // 単発の状態機械
+
+const setGesture = (t) => { const g = $("gesture"); if (g) g.textContent = t; };
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+// 指が「伸びている」= 指先が PIP より手首から遠い
+const fingerUp = (lm, tip, pip) => dist(lm[tip], lm[LM.WRIST]) > dist(lm[pip], lm[LM.WRIST]) * 1.05;
+
+// 手の姿勢を 1 つだけに分類する: 'draw' | 'clear' | 'submit' | 'neutral'
+//   排他的な指の伸展パターンで判定し、3 動作が互いに干渉しないようにする。
+function classify(lm) {
+  const scale = dist(lm[LM.WRIST], lm[LM.MIDDLE_MCP]) || 1e-6;
+  const idxUp = fingerUp(lm, LM.INDEX_TIP, LM.INDEX_PIP);
+  const midUp = fingerUp(lm, LM.MIDDLE_TIP, LM.MIDDLE_PIP);
+  const rngUp = fingerUp(lm, LM.RING_TIP, LM.RING_PIP);
+  const pnkUp = fingerUp(lm, LM.PINKY_TIP, LM.PINKY_PIP);
+
+  // ✏️ 描く = 親指・人差し・中指の 3 指先が寄っている (ペングリップ)
+  const dTI = dist(lm[LM.THUMB_TIP], lm[LM.INDEX_TIP]) / scale;
+  const dTM = dist(lm[LM.THUMB_TIP], lm[LM.MIDDLE_TIP]) / scale;
+  const pinch3 = Math.max(dTI, dTM);
+  const drawThresh = mpPenDown ? PINCH_OFF : PINCH_ON;   // ヒステリシス
+  if (pinch3 < drawThresh) return "draw";
+
+  // ✌️ 検索 = 人差し+中指を立て、薬指・小指は畳む
+  if (idxUp && midUp && !rngUp && !pnkUp) return "submit";
+
+  // ☝️ クリア = 人差し指だけを立て、他 (中・薬・小) は畳む
+  //   パー→この姿勢の経路では親指と人差し先が近づかないのでピンチ誤爆しにくい。
+  if (idxUp && !midUp && !rngUp && !pnkUp) return "clear";
+
+  return "neutral";
+}
+
+async function ensureLandmarker() {
+  if (mpLandmarker) return mpLandmarker;
+  setGesture("モデル読み込み中…");
+  const vision = await import(`${MP_ASSET}/vision_bundle.mjs`);
+  const fileset = await vision.FilesetResolver.forVisionTasks(`${MP_ASSET}/wasm`);
+  mpLandmarker = await vision.HandLandmarker.createFromOptions(fileset, {
+    baseOptions: { modelAssetPath: `${MP_ASSET}/hand_landmarker.task` },
+    runningMode: "VIDEO",
+    numHands: 1,
+  });
+  return mpLandmarker;
+}
+
+async function toggleCam() {
+  if (mpRunning) { stopCam(); return; }
+  try {
+    await ensureLandmarker();
+    mpStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+    const v = $("cam");
+    v.srcObject = mpStream;
+    await v.play();
+    mpRunning = true;
+    $("camBtn").textContent = "カメラ停止";
+    setGesture("検出中…");
+    mpLoop();
+  } catch (e) {
+    setGesture("カメラエラー: " + (e.message || e));
+  }
+}
+
+function stopCam() {
+  mpRunning = false;
+  if (mpRaf) cancelAnimationFrame(mpRaf);
+  if (mpStream) mpStream.getTracks().forEach((t) => t.stop());
+  mpStream = null; mpPenDown = false; mpCursor = null;
+  mpHeld = null; mpArmed = true; mpFlash = null;
+  $("camBtn").textContent = "カメラ開始";
+  setGesture("—");
+  const o = $("overlay"); o.getContext("2d").clearRect(0, 0, o.width, o.height);
+  clearPadCursor();
+}
+
+function mpLoop() {
+  if (!mpRunning) return;
+  const v = $("cam");
+  if (v.readyState >= 2) {
+    const ts = performance.now();
+    if (ts !== mpLastTs) {
+      mpLastTs = ts;
+      handleHands(mpLandmarker.detectForVideo(v, ts));
+    }
+  }
+  mpRaf = requestAnimationFrame(mpLoop);
+}
+
+function endPen() { mpPenDown = false; }
+
+function handleHands(res) {
+  const overlay = $("overlay"), octx = overlay.getContext("2d");
+  octx.clearRect(0, 0, overlay.width, overlay.height);
+  const lm = res.landmarks && res.landmarks[0];
+  if (!lm) { setGesture("手が見えません"); endPen(); mpHeld = null; mpCursor = null; clearPadCursor(); return; }
+
+  const mode = classify(lm);
+  const now = performance.now();
+
+  // ---- ペン先座標 (人差し+中指の中点, 左右反転)。全モード共通で平滑化して保持 ----
+  const ix = (lm[LM.INDEX_TIP].x + lm[LM.MIDDLE_TIP].x) / 2;
+  const iy = (lm[LM.INDEX_TIP].y + lm[LM.MIDDLE_TIP].y) / 2;
+  const cx = (1 - ix) * canvas.width, cy = iy * canvas.height;
+  if (!mpCursor) mpCursor = { x: cx, y: cy };
+  else { mpCursor.x += (cx - mpCursor.x) * EMA; mpCursor.y += (cy - mpCursor.y) * EMA; }
+
+  // 手が画角内にある間は、入力形態に関係なく手書き窓へポインタを表示
+  drawPadCursor(mpCursor.x, mpCursor.y, mode);
+
+  // ---- ✏️ 描画 (連続): 3 本ピンチの間だけペンを下ろす ----
+  if (mode === "draw") {
+    if (!mpPenDown) { mpPenDown = true; ctx.beginPath(); ctx.moveTo(mpCursor.x, mpCursor.y); }
+    else {
+      ctx.lineTo(mpCursor.x, mpCursor.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(mpCursor.x, mpCursor.y);
+    }
+  } else {
+    endPen();
+  }
+
+  // ---- ✌️ クリア / ☝️ 検索 (単発): 同じ姿勢を HOLD_MS キープで確定 ----
+  let charge = 0;
+  if (mode === "clear" || mode === "submit") {
+    if (mpHeld !== mode) { mpHeld = mode; mpHoldStart = now; }   // 姿勢が変わったらタイマ再start
+    if (mpArmed && now - mpLastFire > COOLDOWN_MS) {
+      charge = Math.min(1, (now - mpHoldStart) / HOLD_MS);
+      if (charge >= 1) {                                          // 確定 -> 1 回だけ発火
+        mpArmed = false; mpLastFire = now; mpHeld = null; charge = 0;
+        if (mode === "clear") { clearPad(); mpFlash = { text: "🧹 クリア", until: now + 500 }; }
+        else { searchImage(); mpFlash = { text: "🔍 検索", until: now + 500 }; }
+      }
+    }
+  } else {
+    mpHeld = null;
+    mpArmed = true;   // ニュートラル/描画に戻ったら再武装 (キープ放しで次が撃てる)
+  }
+
+  drawOverlay(octx, lm, overlay, mode, charge, now);
+  setGesture(
+    mode === "draw"   ? "✏️ 描画中" :
+    mode === "clear"  ? "☝️ クリア構え (キープ)" :
+    mode === "submit" ? "✌️ 検索構え (キープ)" : "🖐 待機");
+}
+
+function drawOverlay(octx, lm, overlay, mode, charge, now) {
+  const W = overlay.width, H = overlay.height;
+  // ランドマーク点
+  octx.fillStyle = "rgba(154,163,178,0.85)";
+  for (const p of lm) { octx.beginPath(); octx.arc(p.x * W, p.y * H, 3, 0, Math.PI * 2); octx.fill(); }
+  // ペン先 (人差し+中指の中点)。描画中は赤
+  const px = ((lm[LM.INDEX_TIP].x + lm[LM.MIDDLE_TIP].x) / 2) * W;
+  const py = ((lm[LM.INDEX_TIP].y + lm[LM.MIDDLE_TIP].y) / 2) * H;
+  octx.fillStyle = mode === "draw" ? "#ff5b5b" : "#5bff8c";
+  octx.beginPath(); octx.arc(px, py, 7, 0, Math.PI * 2); octx.fill();
+  // 充電リング (検索/クリアのキープ進捗)
+  if (charge > 0) {
+    octx.strokeStyle = mode === "clear" ? "#ffd15b" : "#5b8cff";
+    octx.lineWidth = 5;
+    octx.beginPath();
+    octx.arc(px, py, 18, -Math.PI / 2, -Math.PI / 2 + charge * 2 * Math.PI);
+    octx.stroke();
+  }
+  // 発火フラッシュ (overlay は CSS でミラーなので文字だけ反転して戻す)
+  if (mpFlash && now < mpFlash.until) {
+    octx.fillStyle = "rgba(0,0,0,0.5)"; octx.fillRect(0, 0, W, H);
+    octx.save(); octx.scale(-1, 1);
+    octx.fillStyle = "#fff"; octx.font = "bold 22px system-ui"; octx.textAlign = "center";
+    octx.fillText(mpFlash.text, -W / 2, H / 2);
+    octx.restore();
+  }
+}
+
+// 手書き窓に重ねた透明キャンバスへポインタを描く (#pad 本体には描かない)。
+function clearPadCursor() {
+  const c = $("padCursor"); c.getContext("2d").clearRect(0, 0, c.width, c.height);
+}
+
+function drawPadCursor(x, y, mode) {
+  const c = $("padCursor"), g = c.getContext("2d");
+  g.clearRect(0, 0, c.width, c.height);
+
+  // ✏️ ペン書きモード: カメラ入力ウィンドウと同じ「赤い点」(= いま描いている indicator)
+  if (mode === "draw") {
+    g.fillStyle = "#ff5b5b";
+    g.beginPath(); g.arc(x, y, 7, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "rgba(255,255,255,0.9)";        // 中心の芯 (overlay と統一感)
+    g.beginPath(); g.arc(x, y, 1.8, 0, Math.PI * 2); g.fill();
+    return;
+  }
+
+  // それ以外 (待機 / クリア構え / 検索構え): ホバー用ポインタ
+  if (POINTER_STYLE === "crosshair") {
+    // 細い黒の小さな十字
+    g.strokeStyle = "rgba(0,0,0,0.85)"; g.lineWidth = 1;
+    const s = 7;
+    g.beginPath();
+    g.moveTo(x - s, y); g.lineTo(x + s, y);
+    g.moveTo(x, y - s); g.lineTo(x, y + s);
+    g.stroke();
+  } else {
+    // PowerPoint / Zoom 風レーザーポインタ (赤い発光ドット・中空気味)
+    const r = 9;
+    const grad = g.createRadialGradient(x, y, 0, x, y, r);
+    grad.addColorStop(0.0, "rgba(255,90,70,0.85)");
+    grad.addColorStop(0.45, "rgba(235,30,30,0.55)");
+    grad.addColorStop(1.0, "rgba(220,0,0,0)");
+    g.fillStyle = grad;
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+  }
+}
+</script>
+</body>
+</html>
