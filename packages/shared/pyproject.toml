@@ -1,10 +1,9 @@
 [project]
 name = "midair-shared"
 version = "0.1.0"
-description = "Shared base for mid-air input subsystems (encoder contract, FAISS utils, Searcher contract)"
+description = "Shared base for mid-air input subsystems (encoder contract, index utils, Searcher contract)"
 requires-python = ">=3.12"
 dependencies = [
-    "faiss-cpu",
     "numpy",
 ]
 

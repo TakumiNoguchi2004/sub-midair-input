@@ -53,7 +53,7 @@ async def get_searcher() -> EmojiSearcher:
             if _searcher is None:
                 _searcher = await asyncio.to_thread(
                     EmojiSearcher,
-                    DATA_DIR / "index.faiss",
+                    DATA_DIR / "index.npy",
                     DATA_DIR / "metadata.jsonl",
                 )
     return _searcher

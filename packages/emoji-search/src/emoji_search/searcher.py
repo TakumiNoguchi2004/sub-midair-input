@@ -1,4 +1,4 @@
-"""EmojiSearcher: FAISS index + metadata + CLIP encoder を束ねた検索実装。
+"""EmojiSearcher: numpy index + metadata + CLIP encoder を束ねた検索実装。
 
 ``midair_shared.search.Searcher`` 契約を満たし、統合アプリから mode="emoji" で
 呼び出される。テキスト検索に加え、手書き入力用の画像検索も提供する。
@@ -17,7 +17,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from midair_shared.index import load_index, search as faiss_search
+from midair_shared.index import load_index, search
 from midair_shared.search import SearchResult
 
 from .encoder import DEFAULT_MODEL, ClipEncoder
@@ -31,9 +31,6 @@ def _on_white(img: Image.Image) -> Image.Image:
 
 
 # index_meta.json の preprocess ラベル -> query(手書き)側に適用する前処理。
-# index と query を同じドメインに揃えるための対応表。
-#   rgba_on_white / openmoji_black: query は「白地+黒線」のままでよい -> 白合成のみ(恒等的)。
-# grayscale / binarize / edge を index に使う場合は、ここに対応する query 前処理を必ず追加する。
 QUERY_PREPROCESS = {
     "rgba_on_white": _on_white,
     "openmoji_black": _on_white,
@@ -50,7 +47,13 @@ class EmojiSearcher:
         model_name: str = DEFAULT_MODEL,
     ) -> None:
         index_path = Path(index_path)
-        self.index = load_index(index_path)
+        if not index_path.exists():
+            raise FileNotFoundError(
+                f"index が見つかりません: {index_path}\n"
+                "index を再構築してください:\n"
+                "  uv run python packages/emoji-search/scripts/build_index.py"
+            )
+        self.vectors = load_index(index_path)
         with open(metadata_path, encoding="utf-8") as f:
             self.metadata = [json.loads(line) for line in f]
         self.encoder = ClipEncoder(model_name)
@@ -58,11 +61,6 @@ class EmojiSearcher:
 
     @staticmethod
     def _resolve_query_preprocess(index_path: Path):
-        """index_meta.json の preprocess に対応する query 前処理を返す。
-
-        - 対応表に無いラベル -> 即 ValueError (index と query のドメイン不一致を未然に防ぐ)。
-        - index_meta.json が無い -> 従来挙動 (rgba_on_white) にフォールバック。
-        """
         meta_path = index_path.with_name("index_meta.json")
         label = "rgba_on_white"
         if meta_path.exists():
@@ -85,8 +83,8 @@ class EmojiSearcher:
         vectors = self.encoder.encode_image([self.preprocess(image)])
         return self._search(vectors, top_k)
 
-    def _search(self, vectors, top_k: int) -> list[SearchResult]:
-        scores, ids = faiss_search(self.index, vectors, top_k)
+    def _search(self, query_vectors, top_k: int) -> list[SearchResult]:
+        scores, ids = search(self.vectors, query_vectors, top_k)
         results = []
         for score, row_id in zip(scores[0], ids[0]):
             if row_id < 0:

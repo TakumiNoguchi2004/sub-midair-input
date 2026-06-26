@@ -18,7 +18,7 @@ def build_searcher(mode: str, data_dir: Path) -> Searcher:
         from emoji_search.searcher import EmojiSearcher
 
         d = data_dir / "emoji_search"
-        index_path = d / "index.faiss"
+        index_path = d / "index.npy"
         if not index_path.exists():
             raise FileNotFoundError(
                 f"index が見つかりません: {index_path}\n"
