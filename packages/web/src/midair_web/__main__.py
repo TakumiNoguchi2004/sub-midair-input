@@ -11,9 +11,17 @@ import socket
 import sys
 
 
-def _port_is_free(host: str, port: int) -> bool:
+def _family_of(host: str) -> int:
+    """host のアドレスファミリ (IPv4/IPv6) を解決する。失敗時は IPv4。"""
+    try:
+        return socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)[0][0]
+    except OSError:
+        return socket.AF_INET
+
+
+def _port_is_free(family: int, host: str, port: int) -> bool:
     """host:port に bind できれば空き。LISTEN 中のポートには bind 失敗する。"""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    with socket.socket(family, socket.SOCK_STREAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind((host, port))
@@ -23,11 +31,16 @@ def _port_is_free(host: str, port: int) -> bool:
 
 
 def pick_port(host: str, preferred: int, span: int = 50) -> int:
-    """preferred から順に空きポートを探す。見つからなければ OS 割当 (port 0)。"""
+    """preferred から順に空きポートを探す。見つからなければ OS 割当 (port 0)。
+
+    host は IPv4 / IPv6 どちらでもよい (getaddrinfo でファミリを解決するため
+    ``--host ::1`` のような指定でも壊れない)。
+    """
+    family = _family_of(host)
     for port in range(preferred, preferred + span):
-        if _port_is_free(host, port):
+        if _port_is_free(family, host, port):
             return port
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    with socket.socket(family, socket.SOCK_STREAM) as sock:
         sock.bind((host, 0))
         return sock.getsockname()[1]
 

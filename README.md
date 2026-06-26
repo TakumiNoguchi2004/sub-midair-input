@@ -55,14 +55,23 @@ mi-midair-input/
 uv sync          # 全 workspace パッケージを 1 つの venv に導入
 ```
 
-## 絵文字: データ準備 → index 構築
+## 絵文字: データ準備 (index は Drive から取得)
+
+index (faiss) は **Google Drive から取得するのが基本**（各環境で CLIP 推論しない）。Docker も同方針。
 
 ```bash
-# 1) OpenMoji データ取得 (data/emoji_search/ に配置。冪等、--force で再取得)
+# 1) 表示用の OpenMoji カラー画像を公式から取得 (冪等、--force で再取得)
 uv run python packages/emoji-search/scripts/download_openmoji.py
 
-# 2) index 構築 -> data/emoji_search/{index.faiss, metadata.jsonl, index_meta.json}
-uv run python packages/emoji-search/scripts/build_index.py
+# 2) V4 index を Drive から取得 (gdown は uvx で都度実行)
+uvx gdown --folder "https://drive.google.com/drive/folders/1ucgsVXXp6jOTWapOPTLsz9i-wpnPS652" -O data
+#    -> data/emoji_search/{index.faiss, metadata.jsonl, index_meta.json}
+```
+
+Drive を使わずローカルで構築する場合 (V4=線画、CLIP 推論で重い):
+```bash
+uv run python packages/emoji-search/scripts/download_openmoji.py --variant both
+uv run python packages/emoji-search/scripts/build_index.py --source-variant black
 ```
 
 詳細は [`packages/emoji-search/README.md`](packages/emoji-search/README.md)。

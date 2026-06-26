@@ -32,9 +32,18 @@ curl -sL -o data/emoji_search/openmoji.json \
 ```
 </details>
 
-## index 構築
+## index の用意
+
+**基本は Drive から取得**（各環境で CLIP 推論しない。`uvx` で gdown を都度実行）:
 ```bash
-uv run python packages/emoji-search/scripts/build_index.py
+uvx gdown --folder "https://drive.google.com/drive/folders/1ucgsVXXp6jOTWapOPTLsz9i-wpnPS652" -O data
+#  -> data/emoji_search/{index.faiss, metadata.jsonl, index_meta.json}
+```
+
+Drive を使わずローカル構築する場合 (V4=線画版):
+```bash
+uv run python packages/emoji-search/scripts/download_openmoji.py --variant both   # color + black
+uv run python packages/emoji-search/scripts/build_index.py --source-variant black
 ```
 
 ## 既知の改善余地 (Codex レビューより)

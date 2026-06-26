@@ -13,9 +13,14 @@ set -euo pipefail
 start_port="${MIDAIR_WEB_PORT:-8762}"
 span="${PORT_SCAN_SPAN:-50}"
 
-# 127.0.0.1:port へ接続できれば「使用中」、できなければ「空き」(bash の /dev/tcp を使用)。
+# ポートが使用中(LISTEN)か判定。全インタフェース/IPv6 まで見れる lsof を優先し、
+# 無い環境では bash の /dev/tcp(127.0.0.1) で代替する。
 port_in_use() {
-  (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+  else
+    (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
+  fi
 }
 
 chosen=""
