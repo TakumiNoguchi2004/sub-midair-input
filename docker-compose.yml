@@ -8,8 +8,9 @@ services:
     platform: linux/amd64
     ports:
       # ホスト側は 8000/8080 等の定番を避け、衝突しにくい 8762 を既定にする
-      # (コンテナ内部は 8000 のまま)。別ポートにしたい場合は左側だけ変える。
-      - "8762:8000"
+      # (コンテナ内部は 8000 のまま)。MIDAIR_WEB_PORT で上書き可。
+      # 空きポートを自動で選ぶなら scripts/run-web.sh を使う。
+      - "${MIDAIR_WEB_PORT:-8762}:8000"
     volumes:
       - ./data:/app/data          # 画像 + index をホストと共有 (永続)
     restart: unless-stopped

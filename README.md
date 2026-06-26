@@ -96,6 +96,7 @@ uv run midair-web                 # http://127.0.0.1:8762 (既定ポート 8762)
 docker compose build                                # イメージ作成
 docker compose --profile setup run --rm prepare     # 初回: データ取得 + index 構築
 docker compose up web                               # http://localhost:8762
+# 8762 が埋まっている環境は空きポートを自動選択: scripts/run-web.sh
 ```
 
 詳細は [`docs/emoji_search/DOCKER.md`](docs/emoji_search/DOCKER.md)。
