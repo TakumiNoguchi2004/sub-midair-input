@@ -104,21 +104,25 @@ docker compose --profile setup run --rm prepare
 
 ### A-3. 起動（ポートの自動割り当て）
 
+**推奨は `scripts/run-web.sh`**。これは「**空きポートを先に決めてから `docker compose up` を呼ぶ**」ラッパーで、決まったポートの URL を表示する:
+
+1. host の 8762 から順に空きポートを探す（使用中ならずらす。例: 8762/8763 が埋まっていれば 8764）
+2. `MIDAIR_WEB_PORT=<空きポート>` を入れて `docker compose up web` を実行
+3. `http://localhost:<空きポート>` を表示
+
+```bash
+scripts/run-web.sh               # 空きポートを選んで起動し、URL を表示
+scripts/run-web.sh -d            # バックグラウンド (追加引数は compose に渡る)
+```
+
+ポートを固定したい場合は素の `docker compose` を使う（host ポートは固定。**8762 が埋まっていると起動失敗**し、URL も表示しない）:
+
 ```bash
 # 既定: ホスト 8762 -> コンテナ 8000
 docker compose up web            # フォアグラウンド  http://localhost:8762
 docker compose up -d web         # バックグラウンド
-
-# 8762 が他で埋まっている環境は、空きポートを自動選択して起動 (推奨)
-scripts/run-web.sh               # 8762 から空きを探して起動し、URL を表示
-scripts/run-web.sh -d            # バックグラウンド (追加引数は compose に渡る)
-
-# ポートを手動指定する場合
-MIDAIR_WEB_PORT=9000 docker compose up web
+MIDAIR_WEB_PORT=9000 docker compose up web   # ポートを手動指定
 ```
-
-`docker compose up` 自体はポートをずらさないため、衝突しうる環境では `scripts/run-web.sh` を使う
-（例: ホスト 8762/8763 が使用中なら自動で 8764 を選ぶ）。
 
 停止:
 
