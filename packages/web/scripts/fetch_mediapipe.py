@@ -38,6 +38,7 @@ FILES: list[tuple[str, str]] = [
 ]
 
 VENDOR_DIR = Path(__file__).resolve().parent.parent / "src" / "midair_web" / "static" / "vendor" / "mediapipe"
+TIMEOUT_SECONDS = 60
 
 
 def fetch(rel: str, url: str, *, force: bool) -> None:
@@ -47,8 +48,14 @@ def fetch(rel: str, url: str, *, force: bool) -> None:
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
     print(f"  download: {rel}")
-    with urllib.request.urlopen(url) as resp:  # noqa: S310 - 既知の固定 URL
-        dest.write_bytes(resp.read())
+    tmp = dest.with_suffix(dest.suffix + ".tmp")
+    try:
+        with urllib.request.urlopen(url, timeout=TIMEOUT_SECONDS) as resp:  # noqa: S310 - 既知の固定 URL
+            tmp.write_bytes(resp.read())
+        tmp.replace(dest)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
 
 
 def main() -> int:
