@@ -90,9 +90,10 @@ uv run midair-web                 # http://127.0.0.1:8762 (既定ポート 8762)
 テキスト入力・手書きキャンバスに加え、カメラの Mid-Air 入力に対応。結果は絵文字画像のグリッドで表示し、
 検索は非同期ジョブでバックグラウンド実行する。詳細は [`packages/web/README.md`](packages/web/README.md)。
 
-## Docker で動かす (Intel Mac / GPU 無し)
+## Docker で動かす (Mac / GPU 無し)
 
 環境依存を抑えるため Docker でも動く（torch は CPU 版、CLIP モデルはイメージに焼き込み）。
+**Intel Mac はネイティブ、Apple Silicon は amd64 エミュレーション**で動作する（性能は落ちるが手順は同じ）。
 
 ```bash
 docker compose build                                # イメージ作成
@@ -105,7 +106,7 @@ docker compose up web                               # http://localhost:8762
 ## ドキュメント
 
 - [`docs/architecture.md`](docs/architecture.md) — 全体構成 / 各 packages のスコープと境界 / 統合の継ぎ目
-- [`docs/emoji_search/DOCKER.md`](docs/emoji_search/DOCKER.md) — Docker でのローカル実行 (Intel Mac / CPU)
+- [`docs/emoji_search/DOCKER.md`](docs/emoji_search/DOCKER.md) — Docker でのローカル実行 (Mac / CPU)
 - [`docs/emoji_search/experiment-domain-matched-index.md`](docs/emoji_search/experiment-domain-matched-index.md) — 手書きドメインに合わせた index 構築の実験計画 (別デバイス向け指示書)
 - [`CLAUDE.md`](CLAUDE.md) — システム全体構成 / 開発フロー (git-flow) / エージェント向け指針
 - `packages/*/README.md` — 各サブシステムの詳細

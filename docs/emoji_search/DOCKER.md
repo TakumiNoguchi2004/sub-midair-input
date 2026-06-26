@@ -1,8 +1,8 @@
-# Docker で動かす (Intel Mac / GPU 無し環境)
+# Docker で動かす (Mac / GPU 無し環境)
 
 環境依存を抑えるため、このシステムは Docker 上で動かせる。
 torch は **CPU 版** を `uv.lock` で固定し、CLIP モデルはイメージに焼き込むので、
-ビルド後はほぼオフラインで動く。対象は **Intel Mac (linux/amd64)**。
+ビルド後はほぼオフラインで動く。**Intel Mac はネイティブ、Apple Silicon は amd64 エミュレーション**で動作する（`linux/amd64` 固定）。
 
 ```
 構成: Docker image "midair-input"
