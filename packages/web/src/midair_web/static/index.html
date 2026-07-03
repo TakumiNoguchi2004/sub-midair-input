@@ -63,6 +63,25 @@
   .cam-meter { height:4px; margin-top:8px; border-radius:999px; background:#2a2f3a; overflow:hidden; opacity:0; }
   .cam-meter.active { opacity:1; }
   .cam-meter-bar { width:0%; height:100%; background:var(--accent); transition:width 80ms linear; }
+  .jp-proto { margin-top:10px; padding:10px 12px; border:1px dashed #3b4250; border-radius:8px;
+    background:rgba(17,20,26,0.72); }
+  .jp-proto textarea { width:100%; min-height:76px; resize:vertical; margin-top:8px; padding:8px 10px;
+    border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--fg);
+    font-size:18px; line-height:1.5; }
+  .jp-proto-status { margin-top:8px; color:var(--muted); font-size:12px; line-height:1.5; min-height:36px; }
+  .jp-map { margin-top:8px; display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:4px 10px;
+    color:var(--muted); font-size:11px; }
+  .jp-map b { color:var(--fg); }
+  .jp-output-panel { margin-bottom:16px; }
+  .jp-output-panel h2 { margin:0 0 8px; color:var(--muted); font-size:14px; }
+  .jp-paper { min-height:120px; padding:16px; border:1px solid var(--line); border-radius:8px;
+    background:#f7f7f5; color:#111; font-size:28px; line-height:1.7; white-space:pre-wrap; }
+  .jp-paper.empty { color:#777; font-size:14px; }
+  .mode-buttons { display:grid; grid-template-columns: repeat(3,1fr); gap:6px; margin-top:8px; }
+  .mode-buttons button.active { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:700; }
+  .mode-row { display:flex; justify-content:space-between; gap:10px; color:var(--muted); font-size:12px; }
+  .mode-row strong { color:var(--fg); font-size:13px; }
+  .mode-unassigned { color:#ffd15b; font-weight:700; }
 </style>
 </head>
 <body>
@@ -112,6 +131,28 @@
         <div class="cam-detail" id="camStateDetail">カメラは停止しています</div>
         <div class="cam-meter" id="camMeter"><div class="cam-meter-bar" id="camMeterBar"></div></div>
       </div>
+      <div class="jp-proto">
+        <div class="mode-row"><span>現在の入力モード</span><strong id="inputModeLabel">絵文字</strong></div>
+        <div class="mode-buttons">
+          <button id="modeJapanese" onclick="setInputMode('japanese')">日本語</button>
+          <button id="modeEnglish" onclick="setInputMode('english')">英語</button>
+          <button id="modeEmoji" class="active" onclick="setInputMode('emoji')">絵文字</button>
+        </div>
+        <div class="mode-row" style="margin-top:8px"><span>言語切替モーション</span><span class="mode-unassigned">ポーズ未割り当て</span></div>
+        <textarea id="jpFlickOutput" spellcheck="false" placeholder="検出したかながここに入ります"></textarea>
+        <div class="row">
+          <button onclick="jpFlickBackspace()">削除</button>
+          <button onclick="jpFlickClear()">クリア</button>
+        </div>
+        <div id="jpFlickStatus" class="jp-proto-status">10種類のピンチで行、フリック方向で母音を選びます。</div>
+        <div class="jp-map">
+          <span><b>人</b> あ行</span><span><b>中</b> か行</span>
+          <span><b>薬</b> さ行</span><span><b>小</b> た行</span>
+          <span><b>人+中</b> な行</span><span><b>中+薬</b> は行</span>
+          <span><b>薬+小</b> ま行</span><span><b>人+薬</b> や行</span>
+          <span><b>中+小</b> ら行</span><span><b>人+小</b> わ行</span>
+        </div>
+      </div>
       <p class="hint">
         片手で操作:<br>
         ・✏️ <b>描く</b> = 親指＋人差し＋中指の3本ピンチ<br>
@@ -123,6 +164,10 @@
 
   <section class="results-wrap">
     <div id="status"></div>
+    <div class="jp-output-panel">
+      <h2>日本語入力結果</h2>
+      <div id="jpFlickPaper" class="jp-paper empty">日本語モードで検出した文字を表示します</div>
+    </div>
     <div id="grid" class="grid"></div>
   </section>
 </main>
@@ -213,6 +258,8 @@ function render(results) {
 
 // Enter で検索
 $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") searchText(); });
+const jpFlickOutput = $("jpFlickOutput");
+if (jpFlickOutput) jpFlickOutput.addEventListener("input", jpFlickRenderOutput);
 
 // =====================================================================
 //  Mid-Air 入力 (MediaPipe Hand Landmarker / 完全クライアントサイド)
@@ -234,11 +281,39 @@ const EMA        = 0.5;   // 座標平滑化 (0=動かない,1=生値)
 const HOLD_MS    = 500;   // 単発(検索/クリア)の確定キープ時間
 const COOLDOWN_MS= 1000;  // 単発の連発防止
 const POINTER_STYLE = "laser";  // 手書き窓のポインタ: "laser"(PowerPoint風) | "crosshair"(細い黒十字)
+const INPUT_MODES = [
+  { id: "japanese", label: "日本語", buttonId: "modeJapanese" },
+  { id: "english", label: "英語", buttonId: "modeEnglish" },
+  { id: "emoji", label: "絵文字", buttonId: "modeEmoji" },
+];
+const LANGUAGE_SWITCH_POSE = null;  // 未割り当て。決定後は cycleInputMode() を呼ぶ。
+const JP_PINCH_ON = 0.58;
+const JP_PINCH_OFF = 0.76;
+const JP_FLICK_MIN = 42;
+const JP_ROWS = {
+  I: ["あ","い","う","え","お"],
+  M: ["か","き","く","け","こ"],
+  R: ["さ","し","す","せ","そ"],
+  P: ["た","ち","つ","て","と"],
+  IM: ["な","に","ぬ","ね","の"],
+  MR: ["は","ひ","ふ","へ","ほ"],
+  RP: ["ま","み","む","め","も"],
+  IR: ["や","い","ゆ","え","よ"],
+  MP: ["ら","り","る","れ","ろ"],
+  IP: ["わ","を","ん","ー","っ"],
+};
+const JP_PATTERN_LABELS = {
+  I:"人差し", M:"中指", R:"薬指", P:"小指", IM:"人差し+中指", MR:"中指+薬指",
+  RP:"薬指+小指", IR:"人差し+薬指", MP:"中指+小指", IP:"人差し+小指",
+};
+const JP_VOWEL_LABELS = ["中央", "左", "上", "右", "下"];
 
 let mpLandmarker = null, mpStream = null, mpRunning = false, mpRaf = null, mpLastTs = -1;
 let mpPenDown = false;                                          // 描画(連続)の状態
 let mpCursor = null;                                            // ペン先の平滑化座標 (canvas px, 全モード共通)
 let mpHeld = null, mpHoldStart = 0, mpArmed = true, mpLastFire = 0, mpFlash = null;  // 単発の状態機械
+let jpFlick = null;  // { pattern, startX, startY, x, y }
+let inputMode = "emoji";
 
 const setGesture = (t) => { const g = $("gesture"); if (g) g.textContent = t; };
 function setCameraState(state, label, detail = "", progress = 0) {
@@ -279,6 +354,126 @@ function classify(lm) {
   if (idxUp && !midUp && !rngUp && !pnkUp) return "clear";
 
   return "neutral";
+}
+
+function setInputMode(mode) {
+  inputMode = mode;
+  const current = INPUT_MODES.find((item) => item.id === mode) || INPUT_MODES[2];
+  const label = $("inputModeLabel");
+  if (label) label.textContent = current.label;
+  for (const item of INPUT_MODES) {
+    const button = $(item.buttonId);
+    if (button) button.classList.toggle("active", item.id === mode);
+  }
+  jpFlick = null;
+  clearPadCursor();
+  if (!mpRunning) {
+    setGesture(current.label);
+    setCameraState("idle", `${current.label}入力モード`, "カメラは停止しています");
+    return;
+  }
+  if (mode === "japanese") {
+    setGesture("日本語フリック");
+    setCameraState("detecting", "日本語入力モード", "同じピンチを50音フリックとして解釈します");
+  } else if (mode === "emoji") {
+    setGesture("絵文字入力");
+    setCameraState("detecting", "絵文字入力モード", "ピンチ描画 / ピース検索 / 指差しクリア");
+  } else {
+    setGesture("英語入力");
+    setCameraState("detecting", "英語入力モード", "動作は未実装です");
+  }
+}
+
+function cycleInputMode() {
+  const index = INPUT_MODES.findIndex((item) => item.id === inputMode);
+  setInputMode(INPUT_MODES[(index + 1) % INPUT_MODES.length].id);
+}
+
+function jpPinchPattern(lm) {
+  const scale = dist(lm[LM.WRIST], lm[LM.MIDDLE_MCP]) || 1e-6;
+  const pairs = [
+    ["I", LM.INDEX_TIP],
+    ["M", LM.MIDDLE_TIP],
+    ["R", LM.RING_TIP],
+    ["P", LM.PINKY_TIP],
+  ];
+  const active = [];
+  const threshold = jpFlick ? JP_PINCH_OFF : JP_PINCH_ON;
+  for (const [key, tip] of pairs) {
+    if (dist(lm[LM.THUMB_TIP], lm[tip]) / scale < threshold) active.push(key);
+  }
+  const pattern = active.join("");
+  return JP_ROWS[pattern] ? pattern : null;
+}
+
+function jpFlickVowelIndex(dx, dy) {
+  const len = Math.hypot(dx, dy);
+  if (len < JP_FLICK_MIN) return 0;  // 中央 = あ段
+  if (Math.abs(dx) > Math.abs(dy)) return dx < 0 ? 1 : 3;  // 左=い / 右=え
+  return dy < 0 ? 2 : 4;  // 上=う / 下=お
+}
+
+function jpFlickAppend(kana) {
+  const output = $("jpFlickOutput");
+  if (output) output.value += kana;
+  jpFlickRenderOutput();
+}
+
+function jpFlickRenderOutput() {
+  const output = $("jpFlickOutput");
+  const paper = $("jpFlickPaper");
+  if (!paper || !output) return;
+  paper.textContent = output.value || "日本語モードで検出した文字を表示します";
+  paper.classList.toggle("empty", !output.value);
+}
+
+function jpFlickSetStatus(text) {
+  const status = $("jpFlickStatus");
+  if (status) status.textContent = text;
+}
+
+function jpFlickBackspace() {
+  const output = $("jpFlickOutput");
+  if (output) output.value = output.value.slice(0, -1);
+  jpFlickRenderOutput();
+}
+
+function jpFlickClear() {
+  const output = $("jpFlickOutput");
+  if (output) output.value = "";
+  jpFlick = null;
+  jpFlickRenderOutput();
+  jpFlickSetStatus("10種類のピンチで行、フリック方向で母音を選びます。");
+}
+
+function updateJapaneseFlick(lm, cursor) {
+  const pattern = jpPinchPattern(lm);
+  if (pattern) {
+    if (!jpFlick || jpFlick.pattern !== pattern) {
+      jpFlick = { pattern, startX: cursor.x, startY: cursor.y, x: cursor.x, y: cursor.y };
+    } else {
+      jpFlick.x = cursor.x;
+      jpFlick.y = cursor.y;
+    }
+    const dx = cursor.x - jpFlick.startX;
+    const dy = cursor.y - jpFlick.startY;
+    const vowel = jpFlickVowelIndex(dx, dy);
+    jpFlickSetStatus(`${JP_PATTERN_LABELS[pattern]}: ${JP_ROWS[pattern][0]}行 / ${JP_VOWEL_LABELS[vowel]} flick`);
+    drawPadCursor(cursor.x, cursor.y, "draw");
+    return true;
+  }
+
+  if (jpFlick) {
+    const dx = jpFlick.x - jpFlick.startX;
+    const dy = jpFlick.y - jpFlick.startY;
+    const vowel = jpFlickVowelIndex(dx, dy);
+    const kana = JP_ROWS[jpFlick.pattern][vowel];
+    jpFlickAppend(kana);
+    jpFlickSetStatus(`${JP_PATTERN_LABELS[jpFlick.pattern]} + ${JP_VOWEL_LABELS[vowel]} = ${kana}`);
+    jpFlick = null;
+  }
+  clearPadCursor();
+  return false;
 }
 
 async function ensureLandmarker() {
@@ -357,7 +552,7 @@ function handleHands(res) {
   if (!lm) {
     setGesture("手が見えません");
     setCameraState("nohand", "手が見つかりません", "手全体が白い検出エリアに入るようにしてください");
-    endPen(); mpHeld = null; mpCursor = null; clearPadCursor(); return;
+    endPen(); mpHeld = null; mpCursor = null; jpFlick = null; clearPadCursor(); return;
   }
 
   const mode = classify(lm);
@@ -369,6 +564,22 @@ function handleHands(res) {
   const cx = (1 - ix) * canvas.width, cy = iy * canvas.height;
   if (!mpCursor) mpCursor = { x: cx, y: cy };
   else { mpCursor.x += (cx - mpCursor.x) * EMA; mpCursor.y += (cy - mpCursor.y) * EMA; }
+
+  if (inputMode === "japanese") {
+    updateJapaneseFlick(lm, mpCursor);
+    drawOverlay(octx, lm, overlay, now);
+    setGesture("日本語フリック");
+    setCameraState("detecting", "日本語入力モード", "ピンチで行、フリックで母音を選択");
+    return;
+  }
+
+  if (inputMode === "english") {
+    drawOverlay(octx, lm, overlay, now);
+    clearPadCursor();
+    setGesture("英語入力");
+    setCameraState("detecting", "英語入力モード", "動作は未実装です");
+    return;
+  }
 
   // 手が画角内にある間は、入力形態に関係なく手書き窓へポインタを表示
   drawPadCursor(mpCursor.x, mpCursor.y, mode);
