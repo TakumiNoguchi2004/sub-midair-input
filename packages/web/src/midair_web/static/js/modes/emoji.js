@@ -34,9 +34,9 @@ export default {
   label: "絵文字",
   reset() { penDown = false; held = null; armed = true; },
   onFrame(ctx) {
-    const { lm, cursor, now, backFacing, langInfo } = ctx;
+    const { lm, cursor, now, langInfo } = ctx;
+    // 言語切替は手が開いている時だけ(core側でゲート)なので、絵文字ジェスチャは常時処理する。
     let mode = classify(lm);
-    if (backFacing) mode = "neutral";   // 手の甲中は 描く/検索/クリア を無効化 (言語切替専用)
 
     drawPadCursor(cursor.x, cursor.y, mode);
     const pctx = getPadCtx();

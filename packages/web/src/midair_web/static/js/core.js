@@ -3,12 +3,12 @@
 //   MediaPipe パイプライン / 入力モードの振り分け / 言語切替モーション / 初期化。
 // 言語ごとの入力ロジックは modes/<lang>.js に分離し、ここは振り分けだけを担う。
 import {
-  MP_ASSET, LM, EMA, POINTER_STYLE, DEFAULT_TOP_K,
+  MP_ASSET, LM, EMA, EDGE_MARGIN, POINTER_STYLE, DEFAULT_TOP_K,
   BACK_HOLD_MS, LANG_COOLDOWN_MS, FLIP_WINDOW_MS, ORIENT_DEADZONE,
   INPUT_MODES, MODE_GUIDE,
 } from "./config.js";
 import emoji from "./modes/emoji.js";
-import japanese, { jpFlickBackspace, jpFlickClear } from "./modes/japanese.js";
+import japanese, { jpFlickBackspace, jpFlickClear, renderJapaneseSettings } from "./modes/japanese.js";
 import english from "./modes/english.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -106,13 +106,37 @@ export const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 // 指が「伸びている」= 指先が PIP より手首から遠い
 export const fingerUp = (lm, tip, pip) => dist(lm[tip], lm[LM.WRIST]) > dist(lm[pip], lm[LM.WRIST]) * 1.05;
 
+// 画角の端マージンを除いた内側 [EDGE_MARGIN, 1-EDGE_MARGIN] を [0,1] にリマップ+クランプ。
+// これで端(不安定)まで手を出さずに描画面の隅へ届き、端でのブレも隅にクランプされる。
+function remapEdge(v) {
+  const t = (v - EDGE_MARGIN) / (1 - 2 * EDGE_MARGIN);
+  return Math.max(0, Math.min(1, t));
+}
+
 // ペン先(人差し+中指の中点, 左右反転)を EMA 平滑化した canvas 座標を返す
 function penTip(lm, prev, width, height) {
   const ix = (lm[LM.INDEX_TIP].x + lm[LM.MIDDLE_TIP].x) / 2;
   const iy = (lm[LM.INDEX_TIP].y + lm[LM.MIDDLE_TIP].y) / 2;
-  const cx = (1 - ix) * width, cy = iy * height;
+  const cx = (1 - remapEdge(ix)) * width, cy = remapEdge(iy) * height;
   if (!prev) return { x: cx, y: cy };
   return { x: prev.x + (cx - prev.x) * EMA, y: prev.y + (cy - prev.y) * EMA };
+}
+
+// 手が枠内に収まっているか。一部でも画角外(palm 見切れ等)なら false。
+// 見切れた手はランドマーク位置が外挿されて不安定になり、向き判定や言語切替を誤爆させるため無効化する。
+const VISIBLE_MARGIN = 0.05;   // このぶんのはみ出しは許容 (端ノイズ用)
+function handFullyVisible(lm) {
+  for (const p of lm) {
+    if (p.x < -VISIBLE_MARGIN || p.x > 1 + VISIBLE_MARGIN ||
+        p.y < -VISIBLE_MARGIN || p.y > 1 + VISIBLE_MARGIN) return false;
+  }
+  return true;
+}
+
+// 4本指がすべて伸展 (パー相当) か。折り曲げ/入力中は言語切替を評価しないためのゲートに使う。
+function fingersExtended(lm) {
+  return fingerUp(lm, LM.INDEX_TIP, LM.INDEX_PIP) && fingerUp(lm, LM.MIDDLE_TIP, LM.MIDDLE_PIP) &&
+         fingerUp(lm, LM.RING_TIP, LM.RING_PIP) && fingerUp(lm, LM.PINKY_TIP, LM.PINKY_PIP);
 }
 
 // 手のひら/甲の向き数値: 「手首→人差し/小指付け根」の 2D 外積符号 (>0 手のひら / <0 手の甲)
@@ -161,7 +185,7 @@ function initHandwriting() {
 //  検索クライアント (非同期ジョブ: 投入 -> ポーリング)。backend(emoji-search) を叩く。
 // =====================================================================
 export const topK = () => Math.max(1, parseInt($("topk").value, 10) || DEFAULT_TOP_K);
-export const resultMode = () => { const el = $("resultMode"); return el ? el.value : "topk"; };
+export const resultMode = () => { const el = $("resultMode"); return el ? el.value : "top1"; };
 export const effectiveTopK = () => (resultMode() === "top1" ? 1 : topK());
 
 export function updateResultModeUI() {
@@ -247,7 +271,7 @@ export function searchImage(source = "manual") {
 //  入力モードの登録と振り分け (backend の registry.build_searcher と対称)
 // =====================================================================
 const MODES = { emoji, japanese, english };
-let inputMode = "emoji";
+let inputMode = "japanese";   // 画面初期は日本語入力
 export const currentMode = () => MODES[inputMode];
 export function currentModeLabel() { const cur = INPUT_MODES.find((i) => i.id === inputMode); return cur ? cur.label : ""; }
 function resetAllModes() { for (const m of Object.values(MODES)) m.reset?.(); }
@@ -266,8 +290,8 @@ export function setInputMode(mode) {
   clearPadCursor();
   const status = $("jpFlickStatus");
   if (status) status.textContent = MODE_GUIDE[mode] || "";        // 入力方法ガイド (モード連動)
-  const jpMap = document.querySelector(".jp-map");
-  if (jpMap) jpMap.style.display = (mode === "japanese") ? "" : "none";   // かな表は日本語のみ
+  const jpCfg = $("jpFingerConfig");
+  if (jpCfg) jpCfg.style.display = (mode === "japanese") ? "" : "none";   // 運指/しきい値設定は日本語のみ
   const resultSetting = $("resultSettingPanel");
   if (resultSetting) resultSetting.style.display = (mode === "emoji") ? "" : "none";
   const drawActions = $("drawActions");
@@ -444,13 +468,28 @@ function handleHands(res) {
     return;
   }
   const now = performance.now();
+  // 手の一部しか写っていない (palm 見切れ等) は無効化 -> 誤検出・言語切替の連続発火を防ぐ
+  if (!handFullyVisible(lm)) {
+    drawOverlay(octx, lm, overlay, now);   // 見切れていてもランドマークは表示 (見切れが分かるように)
+    setGesture("手全体を写してください");
+    setCameraState("nohand", "手が見切れています", "手のひら〜指先まで枠内に収めてください");
+    resetAllModes(); resetLangState(); cursor = null; clearPadCursor();
+    return;
+  }
   cursor = penTip(lm, cursor, canvas.width, canvas.height);
 
   // 🔁 言語切替モーション: 手の向きを全モード共通で先に評価
   const handedLabel = (res.handednesses || res.handedness || [])[0]?.[0]?.categoryName || "Right";
   const orient = updateOrientation(lm, handedLabel, now);
   updateOrientUI(orient);
-  const langInfo = handleLanguageSwitch(orient, now);
+  // 指を折り曲げている(入力中)ときは言語切替を評価しない (誤トリガ防止。back中に入力を止めるのと対称)
+  let langInfo;
+  if (fingersExtended(lm)) {
+    langInfo = handleLanguageSwitch(orient, now);
+  } else {
+    resetLangState();
+    langInfo = { charge: 0, fired: false, label: currentModeLabel() };
+  }
   const backFacing = orient === "back";
 
   // 現在の入力モードへ振り分け (各モジュールが自分の描画/状態/入力を担う)
@@ -464,6 +503,8 @@ function handleHands(res) {
 function init() {
   initHandwriting();
   updateResultModeUI();   // 既定 top-k なので top-k 行を表示
+  renderJapaneseSettings();   // 日本語の運指/しきい値エディタを構築 (日本語モードで表示)
+  setInputMode(inputMode);    // 初期モードに UI を同期 (既定=日本語)
   $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") searchText(); });
 
   // index.html の onclick="..." から呼べるよう window に載せる

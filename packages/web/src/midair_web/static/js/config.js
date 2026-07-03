@@ -14,6 +14,7 @@ export const LM = {
 export const PINCH_ON = 0.55;    // 3本ピンチ(親+人+中)の許容距離: これ未満でペンダウン
 export const PINCH_OFF = 0.80;   // これ超でペンアップ (ヒステリシス)
 export const EMA = 0.5;          // 座標平滑化 (0=動かない,1=生値)
+export const EDGE_MARGIN = 0.1;  // 画角の端(各辺10%)は使わず内側にリマップ (端は手検出が不安定なため)
 export const HOLD_MS = 500;      // 単発(検索/クリア)の確定キープ時間
 export const COOLDOWN_MS = 1000; // 単発の連発防止
 export const POINTER_STYLE = "laser"; // 手書き窓のポインタ: "laser" | "crosshair"
@@ -32,7 +33,7 @@ export const INPUT_MODES = [
   { id: "emoji", label: "絵文字", buttonId: "modeEmoji" },
 ];
 export const MODE_GUIDE = {
-  japanese: "日本語フリック: 10種類のピンチで行、フリック方向で母音を選ぶ50音入力。1文字ごとに手をパーに戻す。",
+  japanese: "日本語(折り曲げ式): パーから指を折って行を選び(約0.2秒)→手をフリック→パーで確定(無フリック=あ段)。親+小=濁点/半濁点/小。",
   english: "英語: 未実装です。",
   emoji: "絵文字: テキスト / 手書きで検索し、下の候補をクリックで入力。カメラは 3本ピンチで描く / ピースで検索 / 指差しでクリア。",
 };
