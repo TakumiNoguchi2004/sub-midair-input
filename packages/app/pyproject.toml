@@ -12,6 +12,7 @@ dependencies = [
 
 [project.scripts]
 midair = "midair_app.__main__:main"
+midair-doctor = "midair_app.doctor:main"
 
 [tool.uv.sources]
 midair-shared = { workspace = true }

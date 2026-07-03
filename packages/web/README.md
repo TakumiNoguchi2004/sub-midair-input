@@ -27,6 +27,11 @@ GET  /emoji-img/{hex}.png -> 絵文字画像
 uv run python packages/web/scripts/fetch_mediapipe.py   # -> src/midair_web/static/vendor/mediapipe/
 ```
 
+依存 import・OpenMoji・FAISS index・MediaPipe・Web 起動前提をまとめて確認する:
+```bash
+uv run midair-doctor
+```
+
 ```bash
 uv run midair-web                      # http://127.0.0.1:8762 (既定ポート 8762)
 uv run midair-web --reload             # 開発用オートリロード

@@ -91,6 +91,7 @@ midair-web      ← FastAPI Web アプリ (Mid-Air 入力 UI + 検索 API)
 |---|---|
 | `registry.py` | `build_searcher(mode, data_dir)`。**選択された mode のときだけ重い依存を import** (遅延ロード)。 |
 | `__main__.py` | `midair` CLI エントリ (`--mode` / `--query` / `--top-k`)。 |
+| `doctor.py` | `midair-doctor` CLI エントリ。依存 import、OpenMoji、FAISS index、MediaPipe、Web 起動前提を一括検証する。 |
 
 > japanese/english を選んだときに emoji の torch を読み込まないため、import は関数内で遅延させる。
 

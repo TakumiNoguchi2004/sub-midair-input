@@ -191,6 +191,12 @@ uv run python packages/web/scripts/fetch_mediapipe.py
 
 ### B-4. アプリの使い方
 
+起動前に、依存 import・OpenMoji・FAISS index・MediaPipe・Web 起動前提が揃っているかを一括確認できる:
+
+```bash
+uv run midair-doctor
+```
+
 ```bash
 # Web アプリ (ポート自動割り当て内蔵)
 uv run midair-web
@@ -254,8 +260,7 @@ uv run midair-web
 ### 生成物があるかだけ確認したい
 
 ```bash
-ls -lh data/emoji_search/index.faiss data/emoji_search/metadata.jsonl data/emoji_search/index_meta.json
-find packages/web/src/midair_web/static/vendor/mediapipe -maxdepth 2 -type f | sort
+uv run midair-doctor
 ```
 
 ---
