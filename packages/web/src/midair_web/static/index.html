@@ -402,7 +402,7 @@ function handleHands(res) {
     mpArmed = true;   // ニュートラル/描画に戻ったら再武装 (キープ放しで次が撃てる)
   }
 
-  drawOverlay(octx, lm, overlay, mode, charge, now);
+  drawOverlay(octx, lm, overlay, now);
   setGesture(
     mode === "draw"   ? "✏️ 描画中" :
     mode === "clear"  ? "☝️ クリア構え (キープ)" :
@@ -422,24 +422,11 @@ function handleHands(res) {
   }
 }
 
-function drawOverlay(octx, lm, overlay, mode, charge, now) {
+function drawOverlay(octx, lm, overlay, now) {
   const W = overlay.width, H = overlay.height;
-  // ランドマーク点
+  // カメラ表示領域は検出補助だけにする。入力ストロークとポインタは手書き窓側に描く。
   octx.fillStyle = "rgba(154,163,178,0.85)";
   for (const p of lm) { octx.beginPath(); octx.arc(p.x * W, p.y * H, 3, 0, Math.PI * 2); octx.fill(); }
-  // ペン先 (人差し+中指の中点)。描画中は赤
-  const px = ((lm[LM.INDEX_TIP].x + lm[LM.MIDDLE_TIP].x) / 2) * W;
-  const py = ((lm[LM.INDEX_TIP].y + lm[LM.MIDDLE_TIP].y) / 2) * H;
-  octx.fillStyle = mode === "draw" ? "#ff5b5b" : "#5bff8c";
-  octx.beginPath(); octx.arc(px, py, 7, 0, Math.PI * 2); octx.fill();
-  // 充電リング (検索/クリアのキープ進捗)
-  if (charge > 0) {
-    octx.strokeStyle = mode === "clear" ? "#ffd15b" : "#5b8cff";
-    octx.lineWidth = 5;
-    octx.beginPath();
-    octx.arc(px, py, 18, -Math.PI / 2, -Math.PI / 2 + charge * 2 * Math.PI);
-    octx.stroke();
-  }
   // 発火フラッシュ (overlay は CSS でミラーなので文字だけ反転して戻す)
   if (mpFlash && now < mpFlash.until) {
     octx.fillStyle = "rgba(0,0,0,0.5)"; octx.fillRect(0, 0, W, H);
