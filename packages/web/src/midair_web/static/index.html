@@ -82,6 +82,16 @@
   .mode-row { display:flex; justify-content:space-between; gap:10px; color:var(--muted); font-size:12px; }
   .mode-row strong { color:var(--fg); font-size:13px; }
   .mode-unassigned { color:#ffd15b; font-weight:700; }
+  .jp-proto select { background:var(--panel); color:var(--fg); border:1px solid var(--line);
+    border-radius:6px; padding:3px 6px; font-size:12px; }
+  .orient-val { font-weight:700; color:var(--muted); }
+  .orient-val.orient-palm { color:#5b8cff; }
+  .orient-val.orient-back { color:#ffd15b; }
+  .mode-toast { position:fixed; left:50%; top:18px; transform:translateX(-50%) translateY(-12px);
+    background:var(--accent); color:#fff; font-weight:700; font-size:15px; padding:10px 18px;
+    border-radius:10px; box-shadow:0 6px 24px rgba(0,0,0,0.35); opacity:0; pointer-events:none;
+    transition:opacity .2s, transform .2s; z-index:50; }
+  .mode-toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
 </style>
 </head>
 <body>
@@ -91,17 +101,26 @@
 </header>
 <main>
   <section class="inputs">
-    <div class="panel">
+    <div class="panel" id="textSearchPanel">
       <h2>テキスト検索</h2>
       <input id="q" type="text" placeholder="例: smiling cat / red heart / fire" />
       <div class="row">
         <button class="primary" onclick="searchText()">検索</button>
+      </div>
+      <div class="row">
+        <label class="k">検索結果</label>
+        <select id="resultMode" style="flex:1" onchange="updateResultModeUI()">
+          <option value="topk" selected>候補を top-k 表示（クリックで入力）</option>
+          <option value="top1">最高スコアの1件を自動入力</option>
+        </select>
+      </div>
+      <div class="row" id="topkRow">
         <label class="k">top-k</label>
-        <input id="topk" type="text" value="12" style="width:56px" />
+        <input id="topk" type="text" value="30" style="width:56px" />
       </div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="handwritingPanel">
       <h2>手書き検索</h2>
       <div class="pad-wrap">
         <canvas id="pad" width="320" height="320"></canvas>
@@ -131,44 +150,53 @@
         <div class="cam-detail" id="camStateDetail">カメラは停止しています</div>
         <div class="cam-meter" id="camMeter"><div class="cam-meter-bar" id="camMeterBar"></div></div>
       </div>
-      <div class="jp-proto">
-        <div class="mode-row"><span>現在の入力モード</span><strong id="inputModeLabel">絵文字</strong></div>
-        <div class="mode-buttons">
-          <button id="modeJapanese" onclick="setInputMode('japanese')">日本語</button>
-          <button id="modeEnglish" onclick="setInputMode('english')">英語</button>
-          <button id="modeEmoji" class="active" onclick="setInputMode('emoji')">絵文字</button>
-        </div>
-        <div class="mode-row" style="margin-top:8px"><span>言語切替モーション</span><span class="mode-unassigned">ポーズ未割り当て</span></div>
-        <textarea id="jpFlickOutput" spellcheck="false" placeholder="検出したかながここに入ります"></textarea>
-        <div class="row">
-          <button onclick="jpFlickBackspace()">削除</button>
-          <button onclick="jpFlickClear()">クリア</button>
-        </div>
-        <div id="jpFlickStatus" class="jp-proto-status">10種類のピンチで行、フリック方向で母音を選びます。</div>
-        <div class="jp-map">
-          <span><b>人</b> あ行</span><span><b>中</b> か行</span>
-          <span><b>薬</b> さ行</span><span><b>小</b> た行</span>
-          <span><b>人+中</b> な行</span><span><b>中+薬</b> は行</span>
-          <span><b>薬+小</b> ま行</span><span><b>人+薬</b> や行</span>
-          <span><b>中+小</b> ら行</span><span><b>人+小</b> わ行</span>
-        </div>
-      </div>
       <p class="hint">
-        片手で操作:<br>
-        ・✏️ <b>描く</b> = 親指＋人差し＋中指の3本ピンチ<br>
-        ・✌️ <b>検索</b> = ピース（人差し＋中指）を0.5秒キープ<br>
-        ・☝️ <b>クリア</b> = 人差し指だけを立てて0.5秒キープ
+        ・🔁 <b>言語切替</b> = 手のひら→手の甲へ裏返す（日本語 → 英語 → 絵文字 を巡回）<br>
+        ・<b>手の甲が見えている間</b>は 描く/検索/クリア は無効（言語切替優先）<br>
+        ・モード切替や方式変更は右「入力結果」下のパネルから
       </p>
     </div>
   </section>
 
   <section class="results-wrap">
     <div id="status"></div>
-    <div class="jp-output-panel">
-      <h2>日本語入力結果</h2>
-      <div id="jpFlickPaper" class="jp-paper empty">日本語モードで検出した文字を表示します</div>
+    <div class="jp-proto">
+      <div class="mode-row"><span>現在の入力モード</span><strong id="inputModeLabel">絵文字</strong></div>
+      <div class="mode-buttons">
+        <button id="modeJapanese" onclick="setInputMode('japanese')">日本語</button>
+        <button id="modeEnglish" onclick="setInputMode('english')">英語</button>
+        <button id="modeEmoji" class="active" onclick="setInputMode('emoji')">絵文字</button>
+      </div>
+      <div id="jpFlickStatus" class="jp-proto-status">絵文字: テキスト / 手書きで検索し、下の候補をクリックで入力。カメラは 3本ピンチで描く / ピースで検索 / 指差しでクリア。</div>
+      <div class="jp-map" style="display:none">
+        <span><b>人</b> あ行</span><span><b>中</b> か行</span>
+        <span><b>薬</b> さ行</span><span><b>小</b> た行</span>
+        <span><b>人+中</b> な行</span><span><b>中+薬</b> は行</span>
+        <span><b>薬+小</b> ま行</span><span><b>人+薬</b> や行</span>
+        <span><b>中+小</b> ら行</span><span><b>人+小</b> わ行</span>
+      </div>
+      <div class="mode-row" style="margin-top:8px"><span>言語切替モーション</span>
+        <select id="langMethodSel" onchange="onLangMethodChange(this.value)">
+          <option value="off">なし（未割り当て）</option>
+          <option value="holdback">手の甲を0.5秒</option>
+          <option value="flip" selected>手のひら→甲にひっくり返す</option>
+        </select>
+      </div>
+      <div class="mode-row"><span>いま検出中の手の向き</span><span id="orientLabel" class="orient-val">—</span></div>
+      <div class="mode-row"><span>検出が逆のとき</span>
+        <label class="k" style="display:flex;gap:6px;align-items:center;cursor:pointer">
+          <input type="checkbox" id="orientInvert" onchange="setOrientInvert(this.checked)" /> 手のひら/甲を反転
+        </label>
+      </div>
+      <div class="mode-row" style="margin-top:10px"><span>入力結果</span></div>
+      <textarea id="jpFlickOutput" spellcheck="false" placeholder="ここに入力結果が入ります（絵文字は下の候補をクリックで追加）"></textarea>
+      <div class="row">
+        <button onclick="jpFlickBackspace()">削除</button>
+        <button onclick="jpFlickClear()">クリア</button>
+      </div>
     </div>
     <div id="grid" class="grid"></div>
+    <div id="modeToast" class="mode-toast"></div>
   </section>
 </main>
 
@@ -176,7 +204,16 @@
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const $ = (id) => document.getElementById(id);
 const setStatus = (t) => { $("status").textContent = t; };
-const topK = () => Math.max(1, parseInt($("topk").value, 10) || 12);
+const topK = () => Math.max(1, parseInt($("topk").value, 10) || 30);
+// 検索結果の扱い: "topk"(候補を表示しクリックで入力) | "top1"(最高スコア1件を自動入力)
+const resultMode = () => { const el = $("resultMode"); return el ? el.value : "topk"; };
+// top-1 自動入力のときは top-k 値の指定を隠す
+function updateResultModeUI() {
+  const row = $("topkRow");
+  if (row) row.style.display = (resultMode() === "top1") ? "none" : "";
+}
+// 実際に取得する件数: top-1 なら 1 件だけ
+const effectiveTopK = () => resultMode() === "top1" ? 1 : topK();
 
 // --- 手書きキャンバス ---
 const canvas = $("pad");
@@ -214,7 +251,18 @@ async function runJob(url, body, source = "manual") {
       await sleep(300);
       const job = await (await fetch(`/api/jobs/${job_id}`)).json();
       if (job.status === "done") {
-        render(job.results); setStatus(`${job.results.length} 件`);
+        if (resultMode() === "top1") {
+          // 候補は表示せず、最高スコア1件だけ入力
+          if (job.results.length) {
+            emojiInput(job.results[0].emoji);
+            setStatus(`最高スコア «${job.results[0].emoji}» を入力`);
+          } else {
+            setStatus("該当なし");
+          }
+        } else {
+          render(job.results);
+          setStatus(`${job.results.length} 件`);
+        }
         if (source === "camera") setCameraState("detecting", "検出中", "次のジェスチャを待っています");
         return;
       }
@@ -233,12 +281,12 @@ async function runJob(url, body, source = "manual") {
 function searchText() {
   const q = $("q").value.trim();
   if (!q) { setStatus("テキストを入力してください"); return; }
-  runJob("/api/search/text", { query: q, top_k: topK() });
+  runJob("/api/search/text", { query: q, top_k: effectiveTopK() });
 }
 
 function searchImage(source = "manual") {
   const dataUrl = canvas.toDataURL("image/png");
-  runJob("/api/search/image", { image: dataUrl, top_k: topK() }, source);
+  runJob("/api/search/image", { image: dataUrl, top_k: effectiveTopK() }, source);
 }
 
 function render(results) {
@@ -247,19 +295,31 @@ function render(results) {
   for (const r of results) {
     const card = document.createElement("div");
     card.className = "card";
+    card.style.cursor = "pointer";
+    card.title = "クリックで入力結果に追加";
     card.innerHTML = `
       <img src="${r.image_url}" alt="${r.label}" loading="lazy" />
       <div class="label">${r.emoji} ${r.label}</div>
       <div class="score">score ${r.score}</div>
       <div class="hex">${r.id}</div>`;
+    card.addEventListener("click", () => emojiInput(r.emoji));
     grid.appendChild(card);
   }
+}
+
+// 検索結果の絵文字カードをクリック -> 入力結果に追加 (マウス入力)
+function emojiInput(emoji) {
+  const output = $("jpFlickOutput");
+  if (output) output.value += emoji;
+  jpFlickRenderOutput();
+  showModeToast(`${emoji} を入力`);
 }
 
 // Enter で検索
 $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") searchText(); });
 const jpFlickOutput = $("jpFlickOutput");
 if (jpFlickOutput) jpFlickOutput.addEventListener("input", jpFlickRenderOutput);
+updateResultModeUI();  // 初期表示 (既定 top-k なので top-k 行を表示)
 
 // =====================================================================
 //  Mid-Air 入力 (MediaPipe Hand Landmarker / 完全クライアントサイド)
@@ -273,7 +333,7 @@ if (jpFlickOutput) jpFlickOutput.addEventListener("input", jpFlickRenderOutput);
 const MP_ASSET = "/assets/vendor/mediapipe";
 const LM = { WRIST:0, THUMB_IP:3, THUMB_TIP:4, INDEX_MCP:5, INDEX_PIP:6, INDEX_TIP:8,
              MIDDLE_MCP:9, MIDDLE_PIP:10, MIDDLE_TIP:12, RING_PIP:14, RING_TIP:16,
-             PINKY_PIP:18, PINKY_TIP:20 };
+             PINKY_MCP:17, PINKY_PIP:18, PINKY_TIP:20 };
 // --- しきい値 (手の大きさで正規化済み。環境により要微調整) ---
 const PINCH_ON   = 0.55;  // 3本ピンチ(親+人+中)の許容距離: これ未満でペンダウン
 const PINCH_OFF  = 0.80;  // これ超でペンアップ (ヒステリシス)
@@ -281,6 +341,11 @@ const EMA        = 0.5;   // 座標平滑化 (0=動かない,1=生値)
 const HOLD_MS    = 500;   // 単発(検索/クリア)の確定キープ時間
 const COOLDOWN_MS= 1000;  // 単発の連発防止
 const POINTER_STYLE = "laser";  // 手書き窓のポインタ: "laser"(PowerPoint風) | "crosshair"(細い黒十字)
+// --- 🔁 言語切替 (実験) のしきい値 ---
+const BACK_HOLD_MS     = 500;   // 手の甲キープで確定する時間
+const LANG_COOLDOWN_MS = 400;   // 言語切替の最小デバウンス (連続切替を許容。誤連射は再武装 langArmed で防ぐ)
+const FLIP_WINDOW_MS   = 1500;  // 手のひらを見てから甲までを「裏返し」とみなす猶予
+const ORIENT_DEADZONE  = 0.12;  // 手のひら/甲を分ける不感帯 (sin(挟み角) 基準)
 const INPUT_MODES = [
   { id: "japanese", label: "日本語", buttonId: "modeJapanese" },
   { id: "english", label: "英語", buttonId: "modeEnglish" },
@@ -307,6 +372,12 @@ const JP_PATTERN_LABELS = {
   RP:"薬指+小指", IR:"人差し+薬指", MP:"中指+小指", IP:"人差し+小指",
 };
 const JP_VOWEL_LABELS = ["中央", "左", "上", "右", "下"];
+// 入力モードごとの入力方法ガイド (現在モードに合わせて #jpFlickStatus に表示)
+const MODE_GUIDE = {
+  japanese: "日本語フリック: 10種類のピンチで行、フリック方向で母音を選ぶ50音入力。1文字ごとに手をパーに戻す。",
+  english: "英語: 未実装です。",
+  emoji: "絵文字: テキスト / 手書きで検索し、下の候補をクリックで入力。カメラは 3本ピンチで描く / ピースで検索 / 指差しでクリア。",
+};
 
 let mpLandmarker = null, mpStream = null, mpRunning = false, mpRaf = null, mpLastTs = -1;
 let mpPenDown = false;                                          // 描画(連続)の状態
@@ -315,6 +386,12 @@ let mpHeld = null, mpHoldStart = 0, mpArmed = true, mpLastFire = 0, mpFlash = nu
 let jpFlick = null;  // { pattern, startX, startY, x, y }
 let inputMode = "emoji";
 let jpFlickArmed = true;
+// 🔁 言語切替 (実験) の状態
+let langMethod = "flip";         // "off" | "holdback" | "flip" (既定=手のひら→甲のひっくり返しで確定)
+let orientInverted = false;      // 手のひら/手の甲の判定が逆な環境向け
+let curOrient = "unknown";       // "palm" | "back" | "unknown"
+let sawPalmAt = -1, backHoldStart = 0, langArmed = true, langLastFire = 0;
+let modeToastTimer = null;
 
 const setGesture = (t) => { const g = $("gesture"); if (g) g.textContent = t; };
 function setCameraState(state, label, detail = "", progress = 0) {
@@ -369,6 +446,13 @@ function setInputMode(mode) {
   jpFlick = null;
   jpFlickArmed = true;
   clearPadCursor();
+  jpFlickSetStatus(MODE_GUIDE[mode] || "");                 // 入力モードごとの入力方法を表示
+  const jpMap = document.querySelector(".jp-map");
+  if (jpMap) jpMap.style.display = (mode === "japanese") ? "" : "none";  // かな表は日本語モードのみ
+  const handwriting = $("handwritingPanel");
+  if (handwriting) handwriting.style.display = (mode === "emoji") ? "" : "none";  // 手書き検索は絵文字モードのみ表示
+  const textSearch = $("textSearchPanel");
+  if (textSearch) textSearch.style.display = (mode === "emoji") ? "" : "none";  // テキスト検索も絵文字モードのみ表示
   if (!mpRunning) {
     setGesture(current.label);
     setCameraState("idle", `${current.label}入力モード`, "カメラは停止しています");
@@ -430,11 +514,7 @@ function jpFlickAppend(kana) {
 }
 
 function jpFlickRenderOutput() {
-  const output = $("jpFlickOutput");
-  const paper = $("jpFlickPaper");
-  if (!paper || !output) return;
-  paper.textContent = output.value || "日本語モードで検出した文字を表示します";
-  paper.classList.toggle("empty", !output.value);
+  // 入力結果は textarea (#jpFlickOutput) 自体が表示する。旧・白いペーパー表示 (#jpFlickPaper) は廃止。
 }
 
 function jpFlickSetStatus(text) {
@@ -499,6 +579,113 @@ function updateJapaneseFlick(lm, cursor) {
   return false;
 }
 
+// =====================================================================
+//  🔁 言語切替 (実験): 手の向き (手のひら / 手の甲) から検出
+//   原理: 「手首→人差し指付け根」×「手首→小指付け根」の 2D 外積(z) の符号は
+//         手を裏返すと反転する。handedness で左右差を打ち消し、環境で判定が
+//         逆になる場合に備えて反転トグルを用意する。
+//   確定したら main 側の cycleInputMode() を呼び、日本語→英語→絵文字 を巡回する。
+//   方式A holdback = 手の甲を BACK_HOLD_MS キープ / 方式B flip = 手のひら→甲へ裏返す
+// =====================================================================
+function handOrientation(lm, handedLabel) {
+  const w = lm[LM.WRIST], i = lm[LM.INDEX_MCP], p = lm[LM.PINKY_MCP];
+  const v1x = i.x - w.x, v1y = i.y - w.y;
+  const v2x = p.x - w.x, v2y = p.y - w.y;
+  const cross = v1x * v2y - v1y * v2x;                       // 2D 外積(z)
+  const norm = Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y) + 1e-9;
+  let m = -cross / norm;                                     // ≒ sin(挟み角): 手のひら/甲で符号反転 (既定符号は実測合わせ)
+  m *= (handedLabel === "Left") ? -1 : 1;                    // 左右差を打ち消す
+  if (orientInverted) m = -m;
+  return m;                                                  // >0: 手のひら / <0: 手の甲
+}
+
+function updateOrientation(lm, handedLabel, now) {
+  const m = handOrientation(lm, handedLabel);
+  if (m > ORIENT_DEADZONE) curOrient = "palm";
+  else if (m < -ORIENT_DEADZONE) curOrient = "back";        // 不感帯内は直前を保持 (チャタリング防止)
+  if (curOrient === "palm") sawPalmAt = now;
+  return curOrient;
+}
+
+function updateOrientUI(orient) {
+  const el = $("orientLabel");
+  if (!el) return;
+  el.textContent = orient === "palm" ? "手のひら" : orient === "back" ? "手の甲" : "—";
+  el.className = "orient-val " + (orient === "back" ? "orient-back" : orient === "palm" ? "orient-palm" : "");
+}
+
+function currentModeLabel() {
+  const cur = INPUT_MODES.find((item) => item.id === inputMode);
+  return cur ? cur.label : "";
+}
+
+// 選択中の方式で言語切替を判定。確定したら cycleInputMode + トースト。
+//   返り値 {charge, fired, label} を状態表示に使う。
+function handleLanguageSwitch(orient, now) {
+  if (langMethod === "off" || orient === "unknown") {
+    backHoldStart = 0;
+    if (orient !== "back") langArmed = true;
+    return { charge: 0, fired: false, label: currentModeLabel() };
+  }
+  const cooldownOk = now - langLastFire > LANG_COOLDOWN_MS;
+  let charge = 0, fired = false;
+
+  if (langMethod === "holdback") {
+    // 方式A: 手の甲を BACK_HOLD_MS キープ (甲を解く + クールダウンで再武装)
+    if (orient === "back") {
+      if (backHoldStart === 0) backHoldStart = now;
+      if (langArmed && cooldownOk) {
+        charge = Math.min(1, (now - backHoldStart) / BACK_HOLD_MS);
+        if (charge >= 1) { fireLangSwitch(now); fired = true; charge = 0; langArmed = false; }
+      }
+    } else {
+      backHoldStart = 0;
+      langArmed = true;
+    }
+  } else if (langMethod === "flip") {
+    // 方式B: 直前に手のひらを見ていて、猶予内に手の甲へ返ったら確定
+    if (orient === "back") {
+      if (langArmed && cooldownOk && sawPalmAt > 0 && (now - sawPalmAt) < FLIP_WINDOW_MS) {
+        fireLangSwitch(now); fired = true; langArmed = false;
+      }
+    } else if (orient === "palm") {
+      langArmed = true;
+    }
+  }
+  return { charge, fired, label: currentModeLabel() };
+}
+
+function fireLangSwitch(now) {
+  langLastFire = now;
+  cycleInputMode();                       // main 側の巡回 (ラベル/ボタン更新 + jpFlick リセット)
+  const label = currentModeLabel();
+  showModeToast(`${label} に変更しました`);
+  mpFlash = { text: `🔁 ${label}`, until: now + 700 };
+}
+
+function showModeToast(text) {
+  const t = $("modeToast");
+  if (!t) return;
+  t.textContent = text;
+  t.classList.add("show");
+  if (modeToastTimer) clearTimeout(modeToastTimer);
+  modeToastTimer = setTimeout(() => t.classList.remove("show"), 1600);
+}
+
+// カメラ状態表示に言語切替の発火/保持を反映 (反映したら true)
+function applyLangCamState(langInfo) {
+  if (langInfo.fired) { setCameraState("detecting", `${langInfo.label} に変更しました`, "言語入力モードを切り替えました"); return true; }
+  if (langInfo.charge > 0) { setCameraState("holding", "言語切替 保持中", `手の甲を保持 ${Math.round(langInfo.charge * 100)}%`, langInfo.charge); return true; }
+  return false;
+}
+
+// UI ハンドラ (インライン属性から呼ぶため関数宣言 = グローバル)
+function onLangMethodChange(v) {
+  langMethod = v;
+  backHoldStart = 0; langArmed = true; sawPalmAt = -1;      // 方式切替で状態リセット
+}
+function setOrientInvert(v) { orientInverted = v; }
+
 async function ensureLandmarker() {
   if (mpLandmarker) return mpLandmarker;
   setGesture("モデル読み込み中…");
@@ -546,6 +733,7 @@ function stopCam() {
   if (mpStream) mpStream.getTracks().forEach((t) => t.stop());
   mpStream = null; mpPenDown = false; mpCursor = null;
   mpHeld = null; mpArmed = true; mpFlash = null;
+  curOrient = "unknown"; sawPalmAt = -1; backHoldStart = 0; langArmed = true;
   $("camBtn").textContent = "カメラ開始";
   setGesture("—");
   setCameraState("idle", "待機中", "カメラは停止しています");
@@ -578,7 +766,7 @@ function handleHands(res) {
     endPen(); mpHeld = null; mpCursor = null; jpFlick = null; clearPadCursor(); return;
   }
 
-  const mode = classify(lm);
+  let mode = classify(lm);
   const now = performance.now();
 
   // ---- ペン先座標 (人差し+中指の中点, 左右反転)。全モード共通で平滑化して保持 ----
@@ -588,21 +776,34 @@ function handleHands(res) {
   if (!mpCursor) mpCursor = { x: cx, y: cy };
   else { mpCursor.x += (cx - mpCursor.x) * EMA; mpCursor.y += (cy - mpCursor.y) * EMA; }
 
+  // ---- 🔁 言語切替 (実験): 手の向きを先に判定 (全モード共通で先に評価) ----
+  const handedLabel = (res.handednesses || res.handedness || [])[0]?.[0]?.categoryName || "Right";
+  const orient = updateOrientation(lm, handedLabel, now);
+  updateOrientUI(orient);
+  const langInfo = handleLanguageSwitch(orient, now);
+  const backFacing = orient === "back";
+
   if (inputMode === "japanese") {
-    updateJapaneseFlick(lm, mpCursor);
+    if (backFacing) { jpFlick = null; clearPadCursor(); }   // 手の甲中は日本語フリックを止める
+    else updateJapaneseFlick(lm, mpCursor);
     drawOverlay(octx, lm, overlay, now);
-    setGesture("日本語フリック");
-    setCameraState("detecting", "日本語入力モード", "ピンチで行、フリックで母音を選択");
+    setGesture(langInfo.fired ? `🔁 ${langInfo.label}` : "日本語フリック");
+    if (!applyLangCamState(langInfo)) {
+      setCameraState("detecting", "日本語入力モード", backFacing ? "手の甲: 言語切替モーション中" : "ピンチで行、フリックで母音を選択");
+    }
     return;
   }
 
   if (inputMode === "english") {
     drawOverlay(octx, lm, overlay, now);
     clearPadCursor();
-    setGesture("英語入力");
-    setCameraState("detecting", "英語入力モード", "動作は未実装です");
+    setGesture(langInfo.fired ? `🔁 ${langInfo.label}` : "英語入力");
+    if (!applyLangCamState(langInfo)) setCameraState("detecting", "英語入力モード", "動作は未実装です");
     return;
   }
+
+  // 手の甲が見えている間は 描く/検索/クリア(ピンチ) を無効化し、言語切替モーション専用にする
+  if (backFacing) mode = "neutral";
 
   // 手が画角内にある間は、入力形態に関係なく手書き窓へポインタを表示
   drawPadCursor(mpCursor.x, mpCursor.y, mode);
@@ -641,7 +842,12 @@ function handleHands(res) {
     mode === "draw"   ? "✏️ 描画中" :
     mode === "clear"  ? "☝️ クリア構え (キープ)" :
     mode === "submit" ? "✌️ 検索構え (キープ)" : "🖐 待機");
-  if (fired === "clear") {
+  if (langInfo.fired) setGesture(`🔁 ${langInfo.label}`);
+  else if (langInfo.charge > 0) setGesture(`🔁 手の甲キープ ${Math.round(langInfo.charge * 100)}%`);
+
+  if (applyLangCamState(langInfo)) {
+    // 言語切替の発火/保持を優先表示
+  } else if (fired === "clear") {
     setCameraState("detecting", "クリアしました", "次のジェスチャを待っています");
   } else if (fired === "submit") {
     setCameraState("searching", "検索実行中", "検索結果を待っています");
