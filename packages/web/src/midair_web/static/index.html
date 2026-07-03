@@ -33,17 +33,16 @@
   .card .score { font-size:11px; color:var(--muted); margin-top:2px; font-variant-numeric:tabular-nums; }
   .card .hex { font-size:10px; color:var(--muted); margin-top:2px; }
   .cam-wrap { position:relative; width:320px; height:240px; border-radius:8px; overflow:hidden;
-    border:1px solid var(--line); background:#000; }
-  .cam-wrap video, .cam-wrap canvas#overlay { position:absolute; inset:0; width:320px; height:240px;
-    transform: scaleX(-1); }  /* 自撮りミラー表示 */
-  /* カメラ映像は表示せず白背景にし、その上に手のランドマークだけ描く */
+    border:1px solid var(--line); background:#fff; }
+  /* カメラ窓に 描画面(#pad) + ランドマーク(#overlay) + ポインタ(#padCursor) を重ねる。
+     #overlay は生座標+CSSミラー、#pad/#padCursor は (1-x) 座標(非ミラー)。表示上は同じ位置に来て
+     手と軌跡が一致する。#pad の画素は自撮り向きなので検索(toDataURL)にそのまま使える。 */
+  .cam-wrap video, .cam-wrap canvas { position:absolute; inset:0; width:320px; height:240px;
+    border:none; border-radius:0; }
   .cam-wrap video { visibility:hidden; }
-  .cam-wrap canvas#overlay { background:#fff; border:none; border-radius:0; }
-  /* 手書き窓 + その上に重ねるポインタ用透明キャンバス */
-  .pad-wrap { position:relative; width:320px; height:320px; }
-  .pad-wrap #pad { position:absolute; inset:0; }
-  .pad-wrap #padCursor { position:absolute; inset:0; background:transparent; border:none;
-    border-radius:0; pointer-events:none; }  /* 描画には混ざらない (検索画像にも写らない) */
+  .cam-wrap #pad { background:#fff; }                                    /* 描画面 (検索ソース) */
+  .cam-wrap #overlay { background:transparent; transform: scaleX(-1); pointer-events:none; }  /* 手のランドマーク (自撮りミラー) */
+  .cam-wrap #padCursor { background:transparent; pointer-events:none; } /* ポインタ */
   .hint { color:var(--muted); font-size:12px; margin:8px 0 0; line-height:1.5; }
   #gesture { color:var(--accent); font-size:13px; font-weight:600; }
   .cam-status { margin-top:10px; padding:10px 12px; border:1px solid var(--line); border-radius:8px;
@@ -101,46 +100,21 @@
 </header>
 <main>
   <section class="inputs">
-    <div class="panel" id="textSearchPanel">
-      <h2>テキスト検索</h2>
-      <input id="q" type="text" placeholder="例: smiling cat / red heart / fire" />
-      <div class="row">
-        <button class="primary" onclick="searchText()">検索</button>
-      </div>
-      <div class="row">
-        <label class="k">検索結果</label>
-        <select id="resultMode" style="flex:1" onchange="updateResultModeUI()">
-          <option value="topk" selected>候補を top-k 表示（クリックで入力）</option>
-          <option value="top1">最高スコアの1件を自動入力</option>
-        </select>
-      </div>
-      <div class="row" id="topkRow">
-        <label class="k">top-k</label>
-        <input id="topk" type="text" value="30" style="width:56px" />
-      </div>
-    </div>
-
-    <div class="panel" id="handwritingPanel">
-      <h2>手書き検索</h2>
-      <div class="pad-wrap">
-        <canvas id="pad" width="320" height="320"></canvas>
-        <canvas id="padCursor" width="320" height="320"></canvas>
-      </div>
-      <div class="row">
-        <button class="primary" onclick="searchImage()">この絵で検索</button>
-        <button onclick="clearPad()">クリア</button>
-      </div>
-    </div>
-
     <div class="panel">
       <h2>Mid-Air 入力 (カメラ)</h2>
       <div class="cam-wrap">
         <video id="cam" playsinline muted></video>
+        <canvas id="pad" width="320" height="240"></canvas>
         <canvas id="overlay" width="320" height="240"></canvas>
+        <canvas id="padCursor" width="320" height="240"></canvas>
       </div>
       <div class="row">
         <button class="primary" id="camBtn" onclick="toggleCam()">カメラ開始</button>
         <span id="gesture">—</span>
+      </div>
+      <div class="row" id="drawActions">
+        <button class="primary" onclick="searchImage()">この絵で検索</button>
+        <button onclick="clearPad()">クリア</button>
       </div>
       <div class="cam-status" id="camStatus" data-state="idle">
         <div class="cam-status-head">
@@ -155,6 +129,28 @@
         ・<b>手の甲が見えている間</b>は 描く/検索/クリア は無効（言語切替優先）<br>
         ・モード切替や方式変更は右「入力結果」下のパネルから
       </p>
+    </div>
+
+    <div class="panel" id="resultSettingPanel">
+      <h2>検索結果</h2>
+      <div class="row">
+        <select id="resultMode" style="flex:1" onchange="updateResultModeUI()">
+          <option value="topk" selected>候補を top-k 表示（クリックで入力）</option>
+          <option value="top1">最高スコアの1件を自動入力</option>
+        </select>
+      </div>
+      <div class="row" id="topkRow">
+        <label class="k">top-k</label>
+        <input id="topk" type="text" value="30" style="width:56px" />
+      </div>
+    </div>
+
+    <div class="panel" id="textSearchPanel">
+      <h2>テキスト検索</h2>
+      <input id="q" type="text" placeholder="例: smiling cat / red heart / fire" />
+      <div class="row">
+        <button class="primary" onclick="searchText()">検索</button>
+      </div>
     </div>
   </section>
 

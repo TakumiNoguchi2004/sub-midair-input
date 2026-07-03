@@ -262,13 +262,16 @@ export function setInputMode(mode) {
     if (button) button.classList.toggle("active", item.id === mode);
   }
   MODES[mode]?.reset?.();
+  clearPad();          // モード切替で描画軌跡を完全クリア (別モードへ移動 / 絵文字に戻っても消えたまま)
   clearPadCursor();
   const status = $("jpFlickStatus");
   if (status) status.textContent = MODE_GUIDE[mode] || "";        // 入力方法ガイド (モード連動)
   const jpMap = document.querySelector(".jp-map");
   if (jpMap) jpMap.style.display = (mode === "japanese") ? "" : "none";   // かな表は日本語のみ
-  const handwriting = $("handwritingPanel");
-  if (handwriting) handwriting.style.display = (mode === "emoji") ? "" : "none";
+  const resultSetting = $("resultSettingPanel");
+  if (resultSetting) resultSetting.style.display = (mode === "emoji") ? "" : "none";
+  const drawActions = $("drawActions");
+  if (drawActions) drawActions.style.display = (mode === "emoji") ? "" : "none";
   const textSearch = $("textSearchPanel");
   if (textSearch) textSearch.style.display = (mode === "emoji") ? "" : "none";
   if (!mpRunning) {
