@@ -25,6 +25,14 @@
   label.k { color:var(--muted); font-size:13px; }
   .results-wrap { padding:20px; }
   #status { color:var(--muted); font-size:13px; min-height:18px; margin-bottom:12px; }
+  .flow { display:grid; grid-template-columns: repeat(auto-fit, minmax(92px,1fr)); gap:8px; margin-bottom:12px; }
+  .flow-step { min-height:56px; padding:8px; border:1px solid var(--line); border-radius:8px;
+    background:var(--panel); color:var(--muted); }
+  .flow-step .name { display:block; font-size:12px; font-weight:700; color:var(--fg); }
+  .flow-step .time { display:block; margin-top:4px; font-size:11px; font-variant-numeric:tabular-nums; }
+  .flow-step[data-state="active"] { border-color:var(--accent); }
+  .flow-step[data-state="done"] { border-color:#5bff8c; }
+  .timing { color:var(--muted); font-size:12px; min-height:17px; margin-bottom:12px; }
   .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(120px,1fr)); gap:12px; }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px;
     display:flex; flex-direction:column; align-items:center; text-align:center; }
@@ -123,6 +131,15 @@
 
   <section class="results-wrap">
     <div id="status"></div>
+    <div id="flow" class="flow">
+      <div class="flow-step" data-step="input"><span class="name">入力開始</span><span class="time">—</span></div>
+      <div class="flow-step" data-step="gesture"><span class="name">ジェスチャ判定</span><span class="time">—</span></div>
+      <div class="flow-step" data-step="commit"><span class="name">入力確定</span><span class="time">—</span></div>
+      <div class="flow-step" data-step="request"><span class="name">リクエスト</span><span class="time">—</span></div>
+      <div class="flow-step" data-step="search"><span class="name">検索中</span><span class="time">—</span></div>
+      <div class="flow-step" data-step="render"><span class="name">結果表示</span><span class="time">—</span></div>
+    </div>
+    <div id="timing" class="timing"></div>
     <div id="grid" class="grid"></div>
   </section>
 </main>
@@ -132,6 +149,52 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const $ = (id) => document.getElementById(id);
 const setStatus = (t) => { $("status").textContent = t; };
 const topK = () => Math.max(1, parseInt($("topk").value, 10) || 12);
+const FLOW_STEPS = ["input", "gesture", "commit", "request", "search", "render"];
+let flowRun = null;
+
+function fmtMs(ms) {
+  if (!Number.isFinite(ms)) return "—";
+  return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`;
+}
+
+function resetFlow(kind) {
+  flowRun = { kind, start: performance.now(), marks: {} };
+  $("timing").textContent = "";
+  renderFlow();
+}
+
+function markFlow(step) {
+  if (!flowRun) resetFlow("入力");
+  if (!flowRun.marks[step]) flowRun.marks[step] = performance.now();
+  renderFlow();
+}
+
+function markImmediateFlow(kind) {
+  resetFlow(kind);
+  markFlow("input");
+  markFlow("gesture");
+  markFlow("commit");
+}
+
+function renderFlow() {
+  const marks = flowRun ? flowRun.marks : {};
+  let activeSet = false;
+  for (const step of FLOW_STEPS) {
+    const el = document.querySelector(`.flow-step[data-step="${step}"]`);
+    if (!el) continue;
+    const done = Boolean(marks[step]);
+    el.dataset.state = done ? "done" : (!activeSet && flowRun ? "active" : "pending");
+    if (!done && flowRun) activeSet = true;
+    el.querySelector(".time").textContent = done ? fmtMs(marks[step] - flowRun.start) : "—";
+  }
+}
+
+function finishFlow() {
+  if (!flowRun || !flowRun.marks.render) return;
+  const total = flowRun.marks.render - flowRun.start;
+  const searchWait = flowRun.marks.render - (flowRun.marks.request || flowRun.marks.render);
+  $("timing").textContent = `${flowRun.kind}: 合計 ${fmtMs(total)} / 検索待ち ${fmtMs(searchWait)}`;
+}
 
 // --- 手書きキャンバス ---
 const canvas = $("pad");
@@ -145,7 +208,11 @@ function posOf(e) {
   const t = e.touches ? e.touches[0] : e;
   return { x: (t.clientX - r.left) * canvas.width / r.width, y: (t.clientY - r.top) * canvas.height / r.height };
 }
-function start(e) { drawing = true; const p = posOf(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); e.preventDefault(); }
+function start(e) {
+  if (!flowRun || flowRun.marks.render) resetFlow("手書き入力");
+  markFlow("input");
+  drawing = true; const p = posOf(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); e.preventDefault();
+}
 function move(e) { if (!drawing) return; const p = posOf(e); ctx.lineTo(p.x, p.y); ctx.stroke(); e.preventDefault(); }
 function end() { drawing = false; }
 canvas.addEventListener("mousedown", start);
@@ -161,26 +228,31 @@ async function runJob(url, body, source = "manual") {
   if (source === "camera") setCameraState("searching", "検索実行中", "手書き画像を送信しています");
   $("grid").innerHTML = "";
   try {
+    markFlow("request");
     const res = await fetch(url, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
     const { job_id } = await res.json();
+    markFlow("search");
     while (true) {
       await sleep(300);
       const job = await (await fetch(`/api/jobs/${job_id}`)).json();
       if (job.status === "done") {
         render(job.results); setStatus(`${job.results.length} 件`);
+        markFlow("render"); finishFlow();
         if (source === "camera") setCameraState("detecting", "検出中", "次のジェスチャを待っています");
         return;
       }
       if (job.status === "error") {
         setStatus("エラー: " + job.error);
+        markFlow("render"); finishFlow();
         if (source === "camera") setCameraState("error", "検索エラー", job.error || "検索に失敗しました");
         return;
       }
     }
   } catch (e) {
     setStatus("通信エラー: " + e);
+    markFlow("render"); finishFlow();
     if (source === "camera") setCameraState("error", "通信エラー", String(e));
   }
 }
@@ -188,10 +260,15 @@ async function runJob(url, body, source = "manual") {
 function searchText() {
   const q = $("q").value.trim();
   if (!q) { setStatus("テキストを入力してください"); return; }
+  markImmediateFlow("テキスト入力");
   runJob("/api/search/text", { query: q, top_k: topK() });
 }
 
 function searchImage(source = "manual") {
+  if (!flowRun || flowRun.marks.render) resetFlow(source === "camera" ? "カメラ入力" : "手書き入力");
+  if (!flowRun.marks.input) markFlow("input");
+  if (!flowRun.marks.gesture) markFlow("gesture");
+  markFlow("commit");
   const dataUrl = canvas.toDataURL("image/png");
   runJob("/api/search/image", { image: dataUrl, top_k: topK() }, source);
 }
@@ -362,6 +439,8 @@ function handleHands(res) {
 
   const mode = classify(lm);
   const now = performance.now();
+  if (!flowRun || flowRun.marks.render) resetFlow("カメラ入力");
+  markFlow("input");
 
   // ---- ペン先座標 (人差し+中指の中点, 左右反転)。全モード共通で平滑化して保持 ----
   const ix = (lm[LM.INDEX_TIP].x + lm[LM.MIDDLE_TIP].x) / 2;
@@ -390,6 +469,7 @@ function handleHands(res) {
   if (mode === "clear" || mode === "submit") {
     if (mpHeld !== mode) { mpHeld = mode; mpHoldStart = now; }   // 姿勢が変わったらタイマ再start
     if (mpArmed && now - mpLastFire > COOLDOWN_MS) {
+      markFlow("gesture");
       charge = Math.min(1, (now - mpHoldStart) / HOLD_MS);
       if (charge >= 1) {                                          // 確定 -> 1 回だけ発火
         mpArmed = false; mpLastFire = now; mpHeld = null; charge = 0;
