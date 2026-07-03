@@ -94,13 +94,15 @@ midair-web      ← FastAPI Web アプリ (Mid-Air 入力 UI + 検索 API)
 > 手書きドメイン整合の実験は [`emoji_search/experiment-domain-matched-index.md`](emoji_search/experiment-domain-matched-index.md)。
 
 ### 日本語 / 英語入力
-日本語入力は現状 Web UI 内 (`index.html`) の50音フリック試作として**フロント完結**で実装している
-(ジェスチャ→かなの直接写像なので backend 不要)。`japanese-search` バックエンドパッケージは無い。
+日本語入力は現状 Web UI 内 (`js/modes/japanese.js`) の**折り曲げ式かな入力**として**フロント完結**で
+実装している (指を折って行を選び、フリック方向で母音を選ぶ。ジェスチャ→かなの直接写像なので backend 不要)。
+`japanese-search` バックエンドパッケージは無い。運指・しきい値・濁点/削除の割り当ては設定 UI で調整できる。
+**詳細は [`japanese_input.md`](japanese_input.md) を参照** (運指表・パラメータの意味・調整指針)。
 
 英語入力は未実装。**決定論的なジェスチャ→文字入力 (フリック / エアタイプ等) ならフロント完結**で
-追加できる (`index.html` の english 分岐に入力ロジックを足す)。空中手書き文字の認識や単語の意味検索など
-「認識/検索して当てる」方式にする場合のみ、emoji と同じ構造 (encoder / data / searcher) で
-`Searcher` 契約を実装し backend を追加する。
+追加できる (`js/modes/english.js` に入力ロジックを足し、`japanese.js` を参照実装にする)。空中手書き文字の
+認識や単語の意味検索など「認識/検索して当てる」方式にする場合のみ、emoji と同じ構造
+(encoder / data / searcher) で `Searcher` 契約を実装し backend を追加する。
 
 ### `packages/app` → `midair_app` (統合 CLI)
 **スコープ**: 実装詳細を知らずに `mode` で各サブシステムへ振り分ける統合層。
