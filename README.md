@@ -10,8 +10,8 @@
 | モダリティ | パッケージ | 状態 | 概要 |
 |---|---|---|---|
 | 絵文字入力 | `emoji-search` | **実装済み (v0)** | OpenMoji を CLIP で埋め込み、テキスト / 手書き画像 / カメラで検索 |
-| 日本語入力 | `japanese-search` | スケルトン | 未実装 |
-| 英語入力 | `english-search` | スケルトン | 未実装 |
+| 日本語入力 | Web UI 内の試作 | 試作 | 10種類のピンチパターン + フリック方向による50音入力 |
+| 英語入力 | なし | 未実装 | バックエンドパッケージ未作成 |
 
 共通基盤 `midair-shared` が **encoder 契約 / FAISS ユーティリティ / 統合契約 (`Searcher`)** を提供し、
 統合アプリ `midair-app` が `mode` に応じて各サブシステムを遅延ロードして振り分ける。
@@ -36,8 +36,6 @@ mi-midair-input/
 │   ├── emoji-search/           # 絵文字入力 (実装済み)
 │   │   ├── scripts/           #   download_openmoji.py / build_index.py
 │   │   └── src/emoji_search/   #   encoder.py / data.py / searcher.py
-│   ├── japanese-search/        # 日本語入力 (スケルトン)
-│   ├── english-search/         # 英語入力 (スケルトン)
 │   ├── app/                    # midair-app: 統合 CLI (`midair`)
 │   │   └── src/midair_app/     #   registry.py / __main__.py
 │   └── web/                    # midair-web: Web アプリ (FastAPI, 非同期検索)
@@ -45,7 +43,6 @@ mi-midair-input/
 │       └── src/midair_web/     #   app.py / __main__.py / static/index.html
 └── data/                       # git 管理外 (.gitkeep のみ追跡)
     ├── emoji_search/           #   openmoji/ + openmoji.json + index.faiss + metadata.jsonl
-    ├── japanese_search/
     └── english_search/
 ```
 

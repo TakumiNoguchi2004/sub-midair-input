@@ -28,8 +28,6 @@ IMPORTS = (
     "midair_web.app",
     "midair_shared",
     "emoji_search",
-    "japanese_search",
-    "english_search",
     "fastapi",
     "uvicorn",
     "faiss",

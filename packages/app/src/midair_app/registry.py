@@ -29,13 +29,9 @@ def build_searcher(mode: str, data_dir: Path) -> Searcher:
         return EmojiSearcher(index_path, d / "metadata.jsonl")
 
     if mode == "japanese":
-        from japanese_search.searcher import JapaneseSearcher
-
-        return JapaneseSearcher()
+        raise NotImplementedError("japanese mode is not implemented as a backend package yet")
 
     if mode == "english":
-        from english_search.searcher import EnglishSearcher
-
-        return EnglishSearcher()
+        raise NotImplementedError("english mode is not implemented as a backend package yet")
 
     raise ValueError(f"unknown mode: {mode!r} (choices: {MODES})")

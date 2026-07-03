@@ -9,8 +9,6 @@ resolution-markers = [
 [manifest]
 members = [
     "emoji-search",
-    "english-search",
-    "japanese-search",
     "mi-midair-input",
     "midair-app",
     "midair-shared",
@@ -101,17 +99,6 @@ requires-dist = [
     { name = "tqdm" },
     { name = "transformers" },
 ]
-
-[[package]]
-name = "english-search"
-version = "0.1.0"
-source = { editable = "packages/english-search" }
-dependencies = [
-    { name = "midair-shared" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "midair-shared", editable = "packages/shared" }]
 
 [[package]]
 name = "faiss-cpu"
@@ -267,17 +254,6 @@ wheels = [
 ]
 
 [[package]]
-name = "japanese-search"
-version = "0.1.0"
-source = { editable = "packages/japanese-search" }
-dependencies = [
-    { name = "midair-shared" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "midair-shared", editable = "packages/shared" }]
-
-[[package]]
 name = "jinja2"
 version = "3.1.6"
 source = { registry = "https://pypi.org/simple" }
@@ -394,16 +370,12 @@ version = "0.1.0"
 source = { editable = "packages/app" }
 dependencies = [
     { name = "emoji-search" },
-    { name = "english-search" },
-    { name = "japanese-search" },
     { name = "midair-shared" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "emoji-search", editable = "packages/emoji-search" },
-    { name = "english-search", editable = "packages/english-search" },
-    { name = "japanese-search", editable = "packages/japanese-search" },
     { name = "midair-shared", editable = "packages/shared" },
 ]
 
