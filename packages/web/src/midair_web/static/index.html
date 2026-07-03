@@ -367,6 +367,7 @@ function setInputMode(mode) {
     if (button) button.classList.toggle("active", item.id === mode);
   }
   jpFlick = null;
+  jpFlickArmed = true;
   clearPadCursor();
   if (!mpRunning) {
     setGesture(current.label);
@@ -574,7 +575,7 @@ function handleHands(res) {
   if (!lm) {
     setGesture("手が見えません");
     setCameraState("nohand", "手が見つかりません", "手全体が白い検出エリアに入るようにしてください");
-    endPen(); mpHeld = null; mpCursor = null; jpFlick = null; jpFlickArmed = true; clearPadCursor(); return;
+    endPen(); mpHeld = null; mpCursor = null; jpFlick = null; clearPadCursor(); return;
   }
 
   const mode = classify(lm);
