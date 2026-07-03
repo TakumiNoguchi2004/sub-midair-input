@@ -91,6 +91,22 @@
     border-radius:10px; box-shadow:0 6px 24px rgba(0,0,0,0.35); opacity:0; pointer-events:none;
     transition:opacity .2s, transform .2s; z-index:50; }
   .mode-toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  /* 日本語 運指/しきい値 設定UI */
+  .jp-cfg { margin-top:8px; }
+  .jp-cfg-title { color:var(--muted); font-size:11px; font-weight:700; margin:10px 0 4px; }
+  .jp-cfg-th { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--muted); margin:3px 0; }
+  .jp-cfg-thlab { flex:0 0 96px; }
+  .jp-cfg-th input[type=range] { flex:1; min-width:0; }
+  .jp-cfg-thval { flex:0 0 46px; text-align:right; color:var(--fg); font-variant-numeric:tabular-nums; }
+  .jp-cfg-row { display:flex; align-items:center; gap:6px; font-size:11px; margin:3px 0; flex-wrap:wrap; }
+  .jp-cfg-rowlabel { flex:0 0 34px; color:var(--fg); font-weight:700; }
+  .jp-cfg-cb { display:inline-flex; align-items:center; gap:2px; color:var(--muted); cursor:pointer; }
+  .jp-cfg-disp, .jp-cfg-edit { display:inline-flex; gap:7px; flex-wrap:wrap; align-items:center; }
+  .jp-cfg-on { color:#5bff8c; font-weight:700; }
+  .jp-cfg-off { color:#5a6270; }
+  .jp-cfg-btn { padding:2px 8px; font-size:11px; }
+  .jp-cfg-msg { color:#ffd15b; font-size:10px; }
+  .jp-cfg-fixed { color:var(--muted); }
 </style>
 </head>
 <body>
@@ -125,8 +141,8 @@
         <div class="cam-meter" id="camMeter"><div class="cam-meter-bar" id="camMeterBar"></div></div>
       </div>
       <p class="hint">
-        ・🔁 <b>言語切替</b> = 手のひら→手の甲へ裏返す（日本語 → 英語 → 絵文字 を巡回）<br>
-        ・<b>手の甲が見えている間</b>は 描く/検索/クリア は無効（言語切替優先）<br>
+        ・🔁 <b>言語切替</b> = <b>手を開いたまま</b>手のひら→手の甲へ裏返す（日本語 → 英語 → 絵文字）<br>
+        ・<b>指を折って入力している間</b>は言語切替しない（手を開いた時だけ切替）<br>
         ・モード切替や方式変更は右「入力結果」下のパネルから
       </p>
     </div>
@@ -135,8 +151,8 @@
       <h2>検索結果</h2>
       <div class="row">
         <select id="resultMode" style="flex:1" onchange="updateResultModeUI()">
-          <option value="topk" selected>候補を top-k 表示（クリックで入力）</option>
-          <option value="top1">最高スコアの1件を自動入力</option>
+          <option value="topk">候補を top-k 表示（クリックで入力）</option>
+          <option value="top1" selected>最高スコアの1件を自動入力</option>
         </select>
       </div>
       <div class="row" id="topkRow">
@@ -164,13 +180,7 @@
         <button id="modeEmoji" class="active" onclick="setInputMode('emoji')">絵文字</button>
       </div>
       <div id="jpFlickStatus" class="jp-proto-status">絵文字: テキスト / 手書きで検索し、下の候補をクリックで入力。カメラは 3本ピンチで描く / ピースで検索 / 指差しでクリア。</div>
-      <div class="jp-map" style="display:none">
-        <span><b>人</b> あ行</span><span><b>中</b> か行</span>
-        <span><b>薬</b> さ行</span><span><b>小</b> た行</span>
-        <span><b>人+中</b> な行</span><span><b>中+薬</b> は行</span>
-        <span><b>薬+小</b> ま行</span><span><b>人+薬</b> や行</span>
-        <span><b>中+小</b> ら行</span><span><b>人+小</b> わ行</span>
-      </div>
+      <div id="jpFingerConfig" class="jp-cfg" style="display:none"></div>
       <div class="mode-row" style="margin-top:8px"><span>言語切替モーション</span>
         <select id="langMethodSel" onchange="onLangMethodChange(this.value)">
           <option value="off">なし（未割り当て）</option>
