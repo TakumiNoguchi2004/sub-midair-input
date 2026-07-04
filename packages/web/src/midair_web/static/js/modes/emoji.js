@@ -30,7 +30,7 @@ export default {
     const pctx = getPadCtx();
 
     // 描画 (連続): 人差し指のみ伸展中
-    if (drawMode === "draw") {
+    if (drawMode === "draw" && pctx) {
       if (!penDown) { penDown = true; pctx.beginPath(); pctx.moveTo(tip.x, tip.y); }
       else { pctx.lineTo(tip.x, tip.y); pctx.stroke(); pctx.beginPath(); pctx.moveTo(tip.x, tip.y); }
     } else {
