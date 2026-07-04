@@ -108,6 +108,11 @@ export class HandState {
     // Layer 1: 位置 (px / 正規化座標)
     this.cursor    = computeCursor(lm, prevCursor, canvasWidth, canvasHeight);
     this.palmPoint = computePalmPoint(lm);
+    // 人差し指先端のcanvas座標 (EMAなし。単指描画用)
+    this.indexTip  = {
+      x: (1 - remapEdge(lm[LM.INDEX_TIP].x)) * canvasWidth,
+      y: remapEdge(lm[LM.INDEX_TIP].y) * canvasHeight,
+    };
 
     // Layer 1 + 2: 姿勢角 (degrees) と 90°量子化
     const roll  = computeRoll(lm, handedLabel);
