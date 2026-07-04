@@ -8,6 +8,7 @@ import {
   INPUT_MODES, MODE_GUIDE,
 } from "./config.js";
 import { HandState, dist } from "./gestures/hand-state.js";
+import { CommonGestures } from "./gestures/common-gestures.js";
 import emoji from "./modes/emoji.js";
 import japanese, { jpFlickBackspace, jpFlickClear, renderJapaneseSettings } from "./modes/japanese.js";
 import english from "./modes/english.js";
@@ -356,7 +357,8 @@ function resetLangState() { curOrient = "unknown"; sawPalmAt = -1; backHoldStart
 //  MediaPipe パイプライン (カメラ -> 手ランドマーク -> モードへ振り分け)
 // =====================================================================
 let mpLandmarker = null, mpStream = null, mpRunning = false, mpRaf = null, mpLastTs = -1;
-let cursor = null;   // ペン先の平滑化座標 (全モード共通)
+let cursor = null;           // ペン先の平滑化座標 (全モード共通)
+const commonGestures = new CommonGestures();  // 決定 / 削除 の検出器
 
 async function ensureLandmarker() {
   if (mpLandmarker) return mpLandmarker;
@@ -404,6 +406,7 @@ function stopCam() {
   if (mpRaf) cancelAnimationFrame(mpRaf);
   if (mpStream) mpStream.getTracks().forEach((t) => t.stop());
   mpStream = null; cursor = null;
+  commonGestures.reset();
   resetAllModes(); resetLangState(); clearFlash();
   $("camBtn").textContent = "カメラ開始";
   setGesture("—");
@@ -433,7 +436,7 @@ function handleHands(res) {
   if (!lm) {
     setGesture("手が見えません");
     setCameraState("nohand", "手が見つかりません", "手全体が白い検出エリアに入るようにしてください");
-    resetAllModes(); cursor = null; clearPadCursor();
+    commonGestures.reset(); resetAllModes(); cursor = null; clearPadCursor();
     return;
   }
   const now = performance.now();
@@ -442,7 +445,7 @@ function handleHands(res) {
     drawOverlay(octx, lm, overlay, now);   // 見切れていてもランドマークは表示 (見切れが分かるように)
     setGesture("手全体を写してください");
     setCameraState("nohand", "手が見切れています", "手のひら〜指先まで枠内に収めてください");
-    resetAllModes(); resetLangState(); cursor = null; clearPadCursor();
+    commonGestures.reset(); resetAllModes(); resetLangState(); cursor = null; clearPadCursor();
     return;
   }
 
@@ -454,7 +457,7 @@ function handleHands(res) {
   // 🔁 言語切替モーション: 手の向きを全モード共通で先に評価
   const orient = updateOrientation(hand, now);
   updateOrientUI(orient);
-  // 4本指が伸びている(パー相当)ときだけ言語切替を評価 (折り曲げ入力中の誤トリガ防止)
+  // 言語切り替え: パーフリップのみ (isOpen ゲートで isFist 中は評価しない)
   let langInfo;
   if (hand.isOpen) {
     langInfo = handleLanguageSwitch(orient, now);
@@ -462,10 +465,14 @@ function handleHands(res) {
     resetLangState();
     langInfo = { charge: 0, fired: false, label: currentModeLabel() };
   }
+
+  // 共通ジェスチャー: 決定(グーパー) / 削除(グーフリップ)
+  const gesture = commonGestures.update(hand, orient, now);
+
   const backFacing = orient === "back";
 
-  // 現在の入力モードへ振り分け (hand を追加, 後方互換フィールドも維持)
-  currentMode().onFrame({ lm: hand.lm, now, cursor: hand.cursor, orient, backFacing, langInfo, octx, overlay, hand });
+  // 現在の入力モードへ振り分け (hand / gesture を追加, 後方互換フィールドも維持)
+  currentMode().onFrame({ lm: hand.lm, now, cursor: hand.cursor, orient, backFacing, langInfo, octx, overlay, hand, gesture });
   drawOverlay(octx, lm, overlay, now);
 }
 
