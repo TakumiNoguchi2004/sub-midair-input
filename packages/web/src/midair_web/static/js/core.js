@@ -3,10 +3,12 @@
 //   MediaPipe パイプライン / 入力モードの振り分け / 言語切替モーション / 初期化。
 // 言語ごとの入力ロジックは modes/<lang>.js に分離し、ここは振り分けだけを担う。
 import {
-  MP_ASSET, LM, EMA, EDGE_MARGIN, POINTER_STYLE, DEFAULT_TOP_K,
+  MP_ASSET, LM, POINTER_STYLE, DEFAULT_TOP_K,
   BACK_HOLD_MS, LANG_COOLDOWN_MS, FLIP_WINDOW_MS, ORIENT_DEADZONE,
   INPUT_MODES, MODE_GUIDE,
 } from "./config.js";
+import { HandState, dist } from "./gestures/hand-state.js";
+import { CommonGestures } from "./gestures/common-gestures.js";
 import emoji from "./modes/emoji.js";
 import japanese, { jpFlickBackspace, jpFlickClear, renderJapaneseSettings } from "./modes/japanese.js";
 import english from "./modes/english.js";
@@ -102,25 +104,10 @@ function updateOrientUI(orient) {
 // =====================================================================
 //  幾何ヘルパ (ランドマークの解釈に使う共通部品)
 // =====================================================================
-export const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+// dist は hand-state.js から re-export
+export { dist };
 // 指が「伸びている」= 指先が PIP より手首から遠い
 export const fingerUp = (lm, tip, pip) => dist(lm[tip], lm[LM.WRIST]) > dist(lm[pip], lm[LM.WRIST]) * 1.05;
-
-// 画角の端マージンを除いた内側 [EDGE_MARGIN, 1-EDGE_MARGIN] を [0,1] にリマップ+クランプ。
-// これで端(不安定)まで手を出さずに描画面の隅へ届き、端でのブレも隅にクランプされる。
-function remapEdge(v) {
-  const t = (v - EDGE_MARGIN) / (1 - 2 * EDGE_MARGIN);
-  return Math.max(0, Math.min(1, t));
-}
-
-// ペン先(人差し+中指の中点, 左右反転)を EMA 平滑化した canvas 座標を返す
-function penTip(lm, prev, width, height) {
-  const ix = (lm[LM.INDEX_TIP].x + lm[LM.MIDDLE_TIP].x) / 2;
-  const iy = (lm[LM.INDEX_TIP].y + lm[LM.MIDDLE_TIP].y) / 2;
-  const cx = (1 - remapEdge(ix)) * width, cy = remapEdge(iy) * height;
-  if (!prev) return { x: cx, y: cy };
-  return { x: prev.x + (cx - prev.x) * EMA, y: prev.y + (cy - prev.y) * EMA };
-}
 
 // 手が枠内に収まっているか。一部でも画角外(palm 見切れ等)なら false。
 // 見切れた手はランドマーク位置が外挿されて不安定になり、向き判定や言語切替を誤爆させるため無効化する。
@@ -133,24 +120,6 @@ function handFullyVisible(lm) {
   return true;
 }
 
-// 4本指がすべて伸展 (パー相当) か。折り曲げ/入力中は言語切替を評価しないためのゲートに使う。
-function fingersExtended(lm) {
-  return fingerUp(lm, LM.INDEX_TIP, LM.INDEX_PIP) && fingerUp(lm, LM.MIDDLE_TIP, LM.MIDDLE_PIP) &&
-         fingerUp(lm, LM.RING_TIP, LM.RING_PIP) && fingerUp(lm, LM.PINKY_TIP, LM.PINKY_PIP);
-}
-
-// 手のひら/甲の向き数値: 「手首→人差し/小指付け根」の 2D 外積符号 (>0 手のひら / <0 手の甲)
-function handOrientation(lm, handedLabel, inverted) {
-  const w = lm[LM.WRIST], i = lm[LM.INDEX_MCP], p = lm[LM.PINKY_MCP];
-  const v1x = i.x - w.x, v1y = i.y - w.y;
-  const v2x = p.x - w.x, v2y = p.y - w.y;
-  const cross = v1x * v2y - v1y * v2x;
-  const norm = Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y) + 1e-9;
-  let m = -cross / norm;                       // ≒ sin(挟み角), 既定符号は実測合わせ
-  m *= (handedLabel === "Left") ? -1 : 1;      // 左右差を打ち消す
-  if (inverted) m = -m;
-  return m;
-}
 
 // =====================================================================
 //  手書きキャンバス (絵文字の描画ターゲット)
@@ -329,8 +298,9 @@ let orientInverted = false;    // 手のひら/甲の判定が逆な環境向け
 let curOrient = "unknown";     // "palm" | "back" | "unknown"
 let sawPalmAt = -1, backHoldStart = 0, langArmed = true, langLastFire = 0;
 
-function updateOrientation(lm, handedLabel, now) {
-  const m = handOrientation(lm, handedLabel, orientInverted);
+// hand.sinRoll() は手のひら向きを sin 空間の値で返す (ORIENT_DEADZONE と同単位で比較)
+function updateOrientation(hand, now) {
+  const m = hand.sinRoll() * (orientInverted ? -1 : 1);
   if (m > ORIENT_DEADZONE) curOrient = "palm";
   else if (m < -ORIENT_DEADZONE) curOrient = "back";   // 不感帯内は直前保持 (チャタリング防止)
   if (curOrient === "palm") sawPalmAt = now;
@@ -387,7 +357,8 @@ function resetLangState() { curOrient = "unknown"; sawPalmAt = -1; backHoldStart
 //  MediaPipe パイプライン (カメラ -> 手ランドマーク -> モードへ振り分け)
 // =====================================================================
 let mpLandmarker = null, mpStream = null, mpRunning = false, mpRaf = null, mpLastTs = -1;
-let cursor = null;   // ペン先の平滑化座標 (全モード共通)
+let cursor = null;           // ペン先の平滑化座標 (全モード共通)
+const commonGestures = new CommonGestures();  // 決定 / 削除 の検出器
 
 async function ensureLandmarker() {
   if (mpLandmarker) return mpLandmarker;
@@ -435,6 +406,7 @@ function stopCam() {
   if (mpRaf) cancelAnimationFrame(mpRaf);
   if (mpStream) mpStream.getTracks().forEach((t) => t.stop());
   mpStream = null; cursor = null;
+  commonGestures.reset();
   resetAllModes(); resetLangState(); clearFlash();
   $("camBtn").textContent = "カメラ開始";
   setGesture("—");
@@ -456,7 +428,7 @@ function mpLoop() {
   mpRaf = requestAnimationFrame(mpLoop);
 }
 
-// 1 フレームの読み取り: 手→向き/座標を求め、現在の入力モードへ振り分ける
+// 1 フレームの読み取り: 手→HandState を生成し、現在の入力モードへ振り分ける
 function handleHands(res) {
   const overlay = $("overlay"), octx = overlay.getContext("2d");
   octx.clearRect(0, 0, overlay.width, overlay.height);
@@ -464,7 +436,7 @@ function handleHands(res) {
   if (!lm) {
     setGesture("手が見えません");
     setCameraState("nohand", "手が見つかりません", "手全体が白い検出エリアに入るようにしてください");
-    resetAllModes(); cursor = null; clearPadCursor();
+    commonGestures.reset(); resetAllModes(); cursor = null; clearPadCursor();
     return;
   }
   const now = performance.now();
@@ -473,27 +445,34 @@ function handleHands(res) {
     drawOverlay(octx, lm, overlay, now);   // 見切れていてもランドマークは表示 (見切れが分かるように)
     setGesture("手全体を写してください");
     setCameraState("nohand", "手が見切れています", "手のひら〜指先まで枠内に収めてください");
-    resetAllModes(); resetLangState(); cursor = null; clearPadCursor();
+    commonGestures.reset(); resetAllModes(); resetLangState(); cursor = null; clearPadCursor();
     return;
   }
-  cursor = penTip(lm, cursor, canvas.width, canvas.height);
+
+  // HandState: ランドマークから状態を一括計算 (cursor の EMA は前フレーム値を引き継ぐ)
+  const handedLabel = (res.handednesses || res.handedness || [])[0]?.[0]?.categoryName || "Right";
+  const hand = new HandState(lm, handedLabel, cursor, canvas.width, canvas.height);
+  cursor = hand.cursor;   // 次フレームの EMA 基点として保持
 
   // 🔁 言語切替モーション: 手の向きを全モード共通で先に評価
-  const handedLabel = (res.handednesses || res.handedness || [])[0]?.[0]?.categoryName || "Right";
-  const orient = updateOrientation(lm, handedLabel, now);
+  const orient = updateOrientation(hand, now);
   updateOrientUI(orient);
-  // 指を折り曲げている(入力中)ときは言語切替を評価しない (誤トリガ防止。back中に入力を止めるのと対称)
+  // 言語切り替え: パーフリップのみ (isOpen ゲートで isFist 中は評価しない)
   let langInfo;
-  if (fingersExtended(lm)) {
+  if (hand.isOpen) {
     langInfo = handleLanguageSwitch(orient, now);
   } else {
     resetLangState();
     langInfo = { charge: 0, fired: false, label: currentModeLabel() };
   }
+
+  // 共通ジェスチャー: 決定(グーパー) / 削除(グーフリップ)
+  const gesture = commonGestures.update(hand, orient, now);
+
   const backFacing = orient === "back";
 
-  // 現在の入力モードへ振り分け (各モジュールが自分の描画/状態/入力を担う)
-  currentMode().onFrame({ lm, now, cursor, orient, backFacing, langInfo, octx, overlay });
+  // 現在の入力モードへ振り分け (hand / gesture を追加, 後方互換フィールドも維持)
+  currentMode().onFrame({ lm: hand.lm, now, cursor: hand.cursor, orient, backFacing, langInfo, octx, overlay, hand, gesture });
   drawOverlay(octx, lm, overlay, now);
 }
 
