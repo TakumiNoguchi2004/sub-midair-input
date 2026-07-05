@@ -8,7 +8,8 @@
   :root { --bg:#0f1115; --panel:#1a1d24; --line:#2a2f3a; --fg:#e6e9ef; --muted:#9aa3b2; --accent:#5b8cff; }
   * { box-sizing: border-box; }
   body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--fg); }
-  header { padding:18px 24px; border-bottom:1px solid var(--line); }
+  header { padding:18px 24px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; gap:16px; }
+  .view-toggle { white-space:nowrap; font-weight:600; }
   header h1 { margin:0; font-size:18px; }
   header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
   main { display:grid; grid-template-columns: 360px 1fr; gap:0; min-height: calc(100vh - 64px); }
@@ -64,7 +65,7 @@
   .cam-meter-bar { width:0%; height:100%; background:var(--accent); transition:width 80ms linear; }
   .jp-proto { margin-top:10px; padding:10px 12px; border:1px dashed #3b4250; border-radius:8px;
     background:rgba(17,20,26,0.72); }
-  .jp-proto textarea { width:100%; min-height:76px; resize:vertical; margin-top:8px; padding:8px 10px;
+  #jpFlickOutput { width:100%; min-height:76px; resize:vertical; margin-top:8px; padding:8px 10px;
     border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--fg);
     font-size:18px; line-height:1.5; }
   .jp-proto-status { margin-top:8px; color:var(--muted); font-size:12px; line-height:1.5; min-height:36px; }
@@ -99,7 +100,7 @@
   .jp-cfg-th input[type=range] { flex:1; min-width:0; }
   .jp-cfg-thval { flex:0 0 46px; text-align:right; color:var(--fg); font-variant-numeric:tabular-nums; }
   .jp-cfg-row { display:flex; align-items:center; gap:6px; font-size:11px; margin:3px 0; flex-wrap:wrap; }
-  .jp-cfg-rowlabel { flex:0 0 34px; color:var(--fg); font-weight:700; }
+  .jp-cfg-rowlabel { flex:0 0 auto; min-width:34px; margin-right:4px; color:var(--fg); font-weight:700; }
   .jp-cfg-cb { display:inline-flex; align-items:center; gap:2px; color:var(--muted); cursor:pointer; }
   .jp-cfg-disp, .jp-cfg-edit { display:inline-flex; gap:7px; flex-wrap:wrap; align-items:center; }
   .jp-cfg-on { color:#5bff8c; font-weight:700; }
@@ -107,12 +108,25 @@
   .jp-cfg-btn { padding:2px 8px; font-size:11px; }
   .jp-cfg-msg { color:#ffd15b; font-size:10px; }
   .jp-cfg-fixed { color:var(--muted); }
+  /* 入力テストパネル */
+  .test-panel { margin-top:16px; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:var(--panel); }
+  .test-panel h2 { margin:0 0 8px; font-size:14px; color:var(--muted); }
+  .test-row { font-size:14px; margin:4px 0; }
+  .test-row b { font-size:18px; }
+  .test-prog { color:var(--muted); font-size:12px; margin-left:8px; }
+  #testYour { font-size:16px; }
+  .test-result { margin-top:8px; font-weight:700; min-height:20px; }
+  .test-result.ok { color:#5bff8c; }
+  .test-result.ng { color:#ff5b5b; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Mid-Air Emoji Search</h1>
-  <p>テキスト or 手書きで絵文字を検索（非同期バックグラウンド処理）</p>
+  <div class="header-title">
+    <h1>Mid-Air Emoji Search</h1>
+    <p>テキスト or 手書きで絵文字を検索（非同期バックグラウンド処理）</p>
+  </div>
+  <button id="viewToggle" class="view-toggle" onclick="toggleView()">テストページ →</button>
 </header>
 <main>
   <section class="inputs">
@@ -181,6 +195,7 @@
       </div>
       <div id="jpFlickStatus" class="jp-proto-status">絵文字: テキスト / 手書きで検索し、下の候補をクリックで入力。カメラは 3本ピンチで描く / ピースで検索 / 指差しでクリア。</div>
       <div id="jpFingerConfig" class="jp-cfg" style="display:none"></div>
+      <div id="enRef" class="jp-cfg" style="display:none"></div>
       <div class="mode-row" style="margin-top:8px"><span>言語切替モーション</span>
         <select id="langMethodSel" onchange="onLangMethodChange(this.value)">
           <option value="off">なし（未割り当て）</option>
@@ -194,14 +209,27 @@
           <input type="checkbox" id="orientInvert" onchange="setOrientInvert(this.checked)" /> 手のひら/甲を反転
         </label>
       </div>
-      <div class="mode-row" style="margin-top:10px"><span>入力結果</span></div>
-      <textarea id="jpFlickOutput" spellcheck="false" placeholder="ここに入力結果が入ります（絵文字は下の候補をクリックで追加）"></textarea>
-      <div class="row">
-        <button onclick="jpFlickBackspace()">削除</button>
-        <button onclick="jpFlickClear()">クリア</button>
+      <div id="inputBlock">
+        <div class="mode-row" style="margin-top:10px"><span>入力結果</span></div>
+        <textarea id="jpFlickOutput" spellcheck="false" placeholder="ここに入力結果が入ります（絵文字は下の候補をクリックで追加）"></textarea>
+        <div class="row">
+          <button onclick="jpFlickBackspace()">削除</button>
+          <button onclick="jpFlickClear()">クリア</button>
+        </div>
       </div>
     </div>
     <div id="grid" class="grid"></div>
+    <div id="inputTestPanel" class="test-panel" style="display:none">
+      <h2>入力テスト</h2>
+      <div class="test-row">お題: <b id="testTarget"></b> <span id="testProgress" class="test-prog"></span></div>
+      <div id="testInputSlot"></div>
+      <div class="row">
+        <button class="primary" onclick="testCheck()">判定</button>
+        <button onclick="testNext()">次のお題</button>
+      </div>
+      <div id="testResult" class="test-result"></div>
+      <p class="hint">お題を、モード（日本語/英語/絵文字）を切り替えながら上の入力欄に作って「判定」。空白の数は無視します。</p>
+    </div>
     <div id="modeToast" class="mode-toast"></div>
   </section>
 </main>

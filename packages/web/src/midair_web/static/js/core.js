@@ -9,7 +9,8 @@ import {
 } from "./config.js";
 import emoji from "./modes/emoji.js";
 import japanese, { jpFlickBackspace, jpFlickClear, renderJapaneseSettings } from "./modes/japanese.js";
-import english from "./modes/english.js";
+import english, { renderEnglishSettings } from "./modes/english.js";
+import { testCheck, testNext, initTest, refreshTest } from "./test.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -290,8 +291,7 @@ export function setInputMode(mode) {
   clearPadCursor();
   const status = $("jpFlickStatus");
   if (status) status.textContent = MODE_GUIDE[mode] || "";        // 入力方法ガイド (モード連動)
-  const jpCfg = $("jpFingerConfig");
-  if (jpCfg) jpCfg.style.display = (mode === "japanese") ? "" : "none";   // 運指/しきい値設定は日本語のみ
+  applyViewLayout();   // 運指設定/入力欄の表示は testMode と mode に応じて決める
   const resultSetting = $("resultSettingPanel");
   if (resultSetting) resultSetting.style.display = (mode === "emoji") ? "" : "none";
   const drawActions = $("drawActions");
@@ -500,10 +500,29 @@ function handleHands(res) {
 // =====================================================================
 //  初期化 & インライン onclick 用のグローバル公開
 // =====================================================================
+// --- テストページ表示切替 (右側を 通常 ⇄ テスト で切替) ---
+let testMode = false;
+function applyViewLayout() {
+  const testPanel = $("inputTestPanel"), grid = $("grid"), btn = $("viewToggle");
+  if (testPanel) testPanel.style.display = testMode ? "" : "none";
+  if (grid) grid.style.display = testMode ? "none" : "";
+  if (btn) btn.textContent = testMode ? "← 通常ページ" : "テストページ →";
+  // 入力ブロック(入力結果欄)を テスト領域 / 上部ブロック へ移動する
+  const block = $("inputBlock"), slot = $("testInputSlot"), proto = document.querySelector(".jp-proto");
+  if (block && slot && proto) (testMode ? slot : proto).appendChild(block);
+  // 運指/しきい値の設定はテストページでは隠す (純粋に言語入力だけにする)
+  const jpCfg = $("jpFingerConfig"), enRef = $("enRef");
+  if (jpCfg) jpCfg.style.display = (!testMode && inputMode === "japanese") ? "" : "none";
+  if (enRef) enRef.style.display = (!testMode && inputMode === "english") ? "" : "none";
+}
+export function toggleView() { testMode = !testMode; applyViewLayout(); if (testMode) refreshTest(); }
+
 function init() {
   initHandwriting();
   updateResultModeUI();   // 既定 top-k なので top-k 行を表示
   renderJapaneseSettings();   // 日本語の運指/しきい値エディタを構築 (日本語モードで表示)
+  renderEnglishSettings();    // 英語の運指エディタを構築 (英語モードで表示)
+  initTest();                 // 入力テストの初期お題
   setInputMode(inputMode);    // 初期モードに UI を同期 (既定=日本語)
   $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") searchText(); });
 
@@ -511,6 +530,7 @@ function init() {
   Object.assign(window, {
     searchText, searchImage, clearPad, toggleCam, setInputMode,
     jpFlickBackspace, jpFlickClear, onLangMethodChange, setOrientInvert, updateResultModeUI,
+    testCheck, testNext, toggleView,
   });
 }
 
