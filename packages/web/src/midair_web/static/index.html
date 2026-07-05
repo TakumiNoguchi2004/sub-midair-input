@@ -118,6 +118,8 @@
   .test-result { margin-top:8px; font-weight:700; min-height:20px; }
   .test-result.ok { color:#5bff8c; }
   .test-result.ng { color:#ff5b5b; }
+  .test-stats { display:flex; gap:14px; flex-wrap:wrap; margin-top:8px; font-size:13px; color:var(--muted); }
+  .test-stats b { color:var(--fg); font-size:15px; font-variant-numeric:tabular-nums; }
 </style>
 </head>
 <body>
@@ -224,11 +226,18 @@
       <div class="test-row">お題: <b id="testTarget"></b> <span id="testProgress" class="test-prog"></span></div>
       <div id="testInputSlot"></div>
       <div class="row">
-        <button class="primary" onclick="testCheck()">判定</button>
+        <button class="primary" id="testStartBtn" onclick="testToggle()">入力開始</button>
         <button onclick="testNext()">次のお題</button>
       </div>
+      <div class="test-stats">
+        <span>時間 <b id="statTime">0.0</b>s</span>
+        <span>入力 <b id="statInputs">0</b>回</span>
+        <span>ミス <b id="statMiss">0</b>回</span>
+        <span>平均入力 <b id="statAvg">0.0</b>回/字</span>
+        <span>正解率 <b id="statAcc">0</b>%</span>
+      </div>
       <div id="testResult" class="test-result"></div>
-      <p class="hint">お題を、モード（日本語/英語/絵文字）を切り替えながら上の入力欄に作って「判定」。空白の数は無視します。</p>
+      <p class="hint">「入力開始」で計測開始 → モードを切り替えながらお題を入力 → 「判定」。空白数は無視して正誤判定します。</p>
     </div>
     <div id="modeToast" class="mode-toast"></div>
   </section>

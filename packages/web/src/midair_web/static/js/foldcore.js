@@ -18,13 +18,18 @@ const thumbFolded = (lm) => {
   const s = dist(lm[LM.WRIST], lm[LM.MIDDLE_MCP]) || 1e-6;
   return dist(lm[LM.THUMB_TIP], lm[LM.MIDDLE_MCP]) / s < th.THUMB_FOLD;   // 親先が手のひら中央に近い=折り
 };
+// 薬指は単独で曲げても第1関節(DIP)が伸びたままのことが多く「立っている」と誤判定されやすい。
+// そこで薬指だけ「立っている」判定を厳しめ(=折り判定を緩め)にする (tip が pip の RING_UP 倍より遠い時だけ立位)。
+const RING_UP = 1.3;
+const ringFolded = (lm) => dist(lm[LM.RING_TIP], lm[LM.WRIST]) <= dist(lm[LM.RING_PIP], lm[LM.WRIST]) * RING_UP;
+
 // 折れている指の集合を正規化文字列 (T,I,M,R,P 順) で返す
 export function foldedSet(lm) {
   const a = [];
   if (thumbFolded(lm)) a.push("T");
   if (!fingerUp(lm, LM.INDEX_TIP, LM.INDEX_PIP)) a.push("I");
   if (!fingerUp(lm, LM.MIDDLE_TIP, LM.MIDDLE_PIP)) a.push("M");
-  if (!fingerUp(lm, LM.RING_TIP, LM.RING_PIP)) a.push("R");
+  if (ringFolded(lm)) a.push("R");   // 薬指は緩めに折り判定
   if (!fingerUp(lm, LM.PINKY_TIP, LM.PINKY_PIP)) a.push("P");
   return a.join("");
 }

@@ -1,13 +1,15 @@
-// 絵文字入力: 指の運指で 描く/検索/クリア を判定。読み取りはフロント、
+// 絵文字入力: 指の運指で 描く/検索/クリア/削除 を判定。読み取りはフロント、
 // 「描いた絵/テキスト → 絵文字候補」の検索だけ backend(emoji-search) に投げる。
 //   ✏️ 描く   = 親指+人差し+中指の3本ピンチ (連続)
 //   ✌️ 検索   = ピース(人差し+中指) を HOLD_MS キープ (単発)
-//   ☝️ クリア = 人差し指のみを立てて HOLD_MS キープ (単発)
+//   ☝️ クリア = 人差し指のみ立てる(親+中+薬+小を折る) を HOLD_MS キープ (単発, キャンバスを消す)
+//   ⌫ 削除   = 親+人を立てる(中+薬+小を折る) を HOLD_MS キープ (単発, 入力欄の1文字削除。他モードと同運指)
 import { LM, PINCH_ON, PINCH_OFF, HOLD_MS, COOLDOWN_MS } from "../config.js";
 import {
-  dist, fingerUp, setGesture, setCameraState, drawPadCursor, setFlash,
+  dist, fingerUp, $, setGesture, setCameraState, drawPadCursor, setFlash,
   getPadCtx, clearPad, searchImage, applyLangCamState,
 } from "../core.js";
+import { foldedSet } from "../foldcore.js";
 
 let penDown = false;                                   // 描画(連続)の状態
 let held = null, holdStart = 0, armed = true, lastFire = 0;  // 単発の状態機械
@@ -24,8 +26,10 @@ function classify(lm) {
   const pinch3 = Math.max(dTI, dTM);
   const drawThresh = penDown ? PINCH_OFF : PINCH_ON;   // ヒステリシス
   if (pinch3 < drawThresh) return "draw";
+  const fs = foldedSet(lm);
+  if (fs === "MRP") return "delete";    // 親+人 立て / 中+薬+小 折り = 入力欄の1文字削除 (他モードと同運指)
+  if (fs === "TMRP") return "clear";    // 人差し指のみ立て(親も折る) = キャンバスをクリア
   if (idxUp && midUp && !rngUp && !pnkUp) return "submit";
-  if (idxUp && !midUp && !rngUp && !pnkUp) return "clear";
   return "neutral";
 }
 
@@ -51,13 +55,14 @@ export default {
 
     // ✌️ 検索 / ☝️ クリア (単発): 同じ姿勢を HOLD_MS キープで確定
     let charge = 0, fired = null;
-    if (mode === "clear" || mode === "submit") {
+    if (mode === "clear" || mode === "submit" || mode === "delete") {
       if (held !== mode) { held = mode; holdStart = now; }
       if (armed && now - lastFire > COOLDOWN_MS) {
         charge = Math.min(1, (now - holdStart) / HOLD_MS);
         if (charge >= 1) {
           armed = false; lastFire = now; held = null; charge = 0;
           if (mode === "clear") { clearPad(); setFlash("🧹 クリア", now + 500); fired = "clear"; }
+          else if (mode === "delete") { const o = $("jpFlickOutput"); if (o) o.value = o.value.slice(0, -1); setFlash("⌫ 削除", now + 500); fired = "delete"; }
           else { searchImage("camera"); setFlash("🔍 検索", now + 500); fired = "submit"; }
         }
       }
@@ -68,7 +73,8 @@ export default {
     setGesture(
       mode === "draw" ? "✏️ 描画中" :
       mode === "clear" ? "☝️ クリア構え (キープ)" :
-      mode === "submit" ? "✌️ 検索構え (キープ)" : "🖐 待機");
+      mode === "submit" ? "✌️ 検索構え (キープ)" :
+      mode === "delete" ? "⌫ 削除構え (キープ)" : "🖐 待機");
     if (langInfo.fired) setGesture(`🔁 ${langInfo.label}`);
     else if (langInfo.charge > 0) setGesture(`🔁 手の甲キープ ${Math.round(langInfo.charge * 100)}%`);
 
@@ -76,12 +82,16 @@ export default {
       // 言語切替の発火/保持を優先表示
     } else if (fired === "clear") {
       setCameraState("detecting", "クリアしました", "次のジェスチャを待っています");
+    } else if (fired === "delete") {
+      setCameraState("detecting", "1文字削除しました", "次のジェスチャを待っています");
     } else if (fired === "submit") {
       setCameraState("searching", "検索実行中", "検索結果を待っています");
     } else if (mode === "draw") {
       setCameraState("drawing", "描画中", "3本ピンチを離すと描画を止めます");
     } else if (mode === "clear") {
       setCameraState("holding", "クリア保持中", `${Math.round(charge * 100)}%`, charge);
+    } else if (mode === "delete") {
+      setCameraState("holding", "削除保持中", `${Math.round(charge * 100)}%`, charge);
     } else if (mode === "submit") {
       setCameraState("holding", "検索保持中", `${Math.round(charge * 100)}%`, charge);
     } else {

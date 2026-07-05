@@ -4,13 +4,13 @@
 // 言語ごとの入力ロジックは modes/<lang>.js に分離し、ここは振り分けだけを担う。
 import {
   MP_ASSET, LM, EMA, EDGE_MARGIN, POINTER_STYLE, DEFAULT_TOP_K,
-  BACK_HOLD_MS, LANG_COOLDOWN_MS, FLIP_WINDOW_MS, ORIENT_DEADZONE,
+  BACK_HOLD_MS, LANG_COOLDOWN_MS, FLIP_WINDOW_MS, ORIENT_DEADZONE, SWITCH_INPUT_COOLDOWN,
   INPUT_MODES, MODE_GUIDE,
 } from "./config.js";
 import emoji from "./modes/emoji.js";
 import japanese, { jpFlickBackspace, jpFlickClear, renderJapaneseSettings } from "./modes/japanese.js";
 import english, { renderEnglishSettings } from "./modes/english.js";
-import { testCheck, testNext, initTest, refreshTest } from "./test.js";
+import { testToggle, testNext, initTest, refreshTest } from "./test.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -328,6 +328,7 @@ let langMethod = "flip";       // "off" | "holdback" | "flip"
 let orientInverted = false;    // 手のひら/甲の判定が逆な環境向け
 let curOrient = "unknown";     // "palm" | "back" | "unknown"
 let sawPalmAt = -1, backHoldStart = 0, langArmed = true, langLastFire = 0;
+let inputSuppressUntil = 0;   // 言語切替直後はこの時刻まで入力を止める
 
 function updateOrientation(lm, handedLabel, now) {
   const m = handOrientation(lm, handedLabel, orientInverted);
@@ -365,6 +366,7 @@ function handleLanguageSwitch(orient, now) {
 
 function fireLangSwitch(now) {
   langLastFire = now;
+  inputSuppressUntil = now + SWITCH_INPUT_COOLDOWN;   // 切替直後は少しの間 入力を止める
   cycleInputMode();
   const label = currentModeLabel();
   showModeToast(`${label} に変更しました`);
@@ -430,6 +432,9 @@ export async function toggleCam() {
   }
 }
 
+// 未起動ならカメラを起動 (入力テストの「入力開始」から呼ぶ)
+export function startCam() { if (!mpRunning) toggleCam(); }
+
 function stopCam() {
   mpRunning = false;
   if (mpRaf) cancelAnimationFrame(mpRaf);
@@ -492,6 +497,16 @@ function handleHands(res) {
   }
   const backFacing = orient === "back";
 
+  // 言語切替直後は一定時間 入力を止める (回転→入力の遷移で親指誤判定→誤入力するのを防ぐ)
+  if (now < inputSuppressUntil) {
+    currentMode().reset?.();   // 状態を溜めない
+    clearPadCursor();
+    drawOverlay(octx, lm, overlay, now);
+    setGesture(langInfo.fired ? `🔁 ${langInfo.label}` : "切替直後…");
+    setCameraState("detecting", `${currentModeLabel()}入力モード`, "切替直後: 少し待ってから入力してください");
+    return;
+  }
+
   // 現在の入力モードへ振り分け (各モジュールが自分の描画/状態/入力を担う)
   currentMode().onFrame({ lm, now, cursor, orient, backFacing, langInfo, octx, overlay });
   drawOverlay(octx, lm, overlay, now);
@@ -515,7 +530,7 @@ function applyViewLayout() {
   if (jpCfg) jpCfg.style.display = (!testMode && inputMode === "japanese") ? "" : "none";
   if (enRef) enRef.style.display = (!testMode && inputMode === "english") ? "" : "none";
 }
-export function toggleView() { testMode = !testMode; applyViewLayout(); if (testMode) refreshTest(); }
+export function toggleView() { testMode = !testMode; applyViewLayout(); refreshTest(); }
 
 function init() {
   initHandwriting();
@@ -530,7 +545,7 @@ function init() {
   Object.assign(window, {
     searchText, searchImage, clearPad, toggleCam, setInputMode,
     jpFlickBackspace, jpFlickClear, onLangMethodChange, setOrientInvert, updateResultModeUI,
-    testCheck, testNext, toggleView,
+    testToggle, testNext, toggleView,
   });
 }
 
