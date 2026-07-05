@@ -2,6 +2,7 @@
 // 「入力開始」で計測+カメラ起動 → お題を入力 → 「終了」で停止+結果表示。
 // 入力欄 (#jpFlickOutput) の値変化を rAF でポーリングして集計する。
 import { $, startCam } from "./core.js";
+import { t } from "./i18n.js";
 
 const SAMPLES = [
   "ねこ cat 🐱",
@@ -19,18 +20,18 @@ let inputs = 0, mistypes = 0, targetChars = [];
 const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
 const chars = (s) => Array.from(s || "");           // 絵文字を1文字として扱う
 const setStat = (id, v) => { const e = $(id); if (e) e.textContent = v; };
-const setBtn = (t) => { const b = $("testStartBtn"); if (b) b.textContent = t; };
+const setBtn = (label) => { const b = $("testStartBtn"); if (b) b.textContent = label; };
 
 export function refreshTest() {
   measuring = false;
   if (rafId) cancelAnimationFrame(rafId);
   startT = 0; lastVal = ""; inputs = 0; mistypes = 0;
   targetChars = chars(SAMPLES[idx]);
-  const t = $("testTarget"); if (t) t.textContent = SAMPLES[idx];
+  const tgt = $("testTarget"); if (tgt) tgt.textContent = SAMPLES[idx];
   const p = $("testProgress"); if (p) p.textContent = `${idx + 1} / ${SAMPLES.length}`;
   setStat("statTime", "0.0"); setStat("statInputs", "0"); setStat("statMiss", "0"); setStat("statAcc", "0"); setStat("statAvg", "0.0");
   const r = $("testResult"); if (r) { r.textContent = ""; r.className = "test-result"; }
-  setBtn("入力開始");
+  setBtn(t("btn.testStart"));
 }
 
 // お題との一致率 (先頭から位置ごとに一致した数 / お題の長さ)
@@ -73,8 +74,8 @@ function testStart() {
   targetChars = chars(SAMPLES[idx]);
   measuring = true; startT = performance.now(); lastVal = ""; inputs = 0; mistypes = 0;
   startCam();   // カメラ起動 (未起動なら)
-  const r = $("testResult"); if (r) { r.textContent = "計測中… お題を入力してください"; r.className = "test-result"; }
-  setBtn("終了");
+  const r = $("testResult"); if (r) { r.textContent = t("test.measuring"); r.className = "test-result"; }
+  setBtn(t("btn.testStop"));
   if (rafId) cancelAnimationFrame(rafId);
   tick();
 }
@@ -87,8 +88,8 @@ function testStop() {
   liveStats(cur);   // 最終値で固定
   const ok = norm(cur) === norm(SAMPLES[idx]);
   const r = $("testResult");
-  if (r) { r.textContent = ok ? "✅ 正解！ 「次のお題」へ" : "終了。お題と一致しません"; r.className = "test-result " + (ok ? "ok" : "ng"); }
-  setBtn("入力開始");
+  if (r) { r.textContent = ok ? t("test.correct") : t("test.wrong"); r.className = "test-result " + (ok ? "ok" : "ng"); }
+  setBtn(t("btn.testStart"));
 }
 
 export function testToggle() { if (measuring) testStop(); else testStart(); }

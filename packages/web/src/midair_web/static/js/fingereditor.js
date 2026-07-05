@@ -1,7 +1,9 @@
 // 折り曲げ運指の設定UI (しきい値スライダ + 運指エディタ)。日本語/英語で共有。
-import { th, canonFold, FINGER_ORDER, FINGER_LABEL } from "./foldcore.js";
+import { th, canonFold, FINGER_ORDER } from "./foldcore.js";
+import { t } from "./i18n.js";
 
-const FINGER_CB = FINGER_ORDER.map((k) => [k, FINGER_LABEL[k]]);
+// 指ラベルは描画時に t() で解決する (言語トグルで再描画されると新言語になる)
+const fingerLabel = (k) => t("finger." + k);
 
 function makeSlider(label, min, max, step, value, onInput) {
   const row = document.createElement("div");
@@ -27,7 +29,8 @@ function makeRowEditor(entry, foldMap, allEntries, labelFn) {
   function renderDisp() {
     disp.innerHTML = "";
     const set = new Set(foldMap[entry]);
-    for (const [key, lbl] of FINGER_CB) {
+    for (const key of FINGER_ORDER) {
+      const lbl = fingerLabel(key);
       const s = document.createElement("span");
       s.className = set.has(key) ? "jp-cfg-on" : "jp-cfg-off";
       s.textContent = set.has(key) ? `✅${lbl}` : lbl;
@@ -40,34 +43,34 @@ function makeRowEditor(entry, foldMap, allEntries, labelFn) {
   const edit = document.createElement("span");
   edit.className = "jp-cfg-edit"; edit.style.display = "none";
   const boxes = {};
-  for (const [key, lbl] of FINGER_CB) {
+  for (const key of FINGER_ORDER) {
     const w = document.createElement("label"); w.className = "jp-cfg-cb";
     const cb = document.createElement("input"); cb.type = "checkbox";
-    w.appendChild(cb); w.appendChild(document.createTextNode(lbl));
+    w.appendChild(cb); w.appendChild(document.createTextNode(fingerLabel(key)));
     edit.appendChild(w); boxes[key] = cb;
   }
   el.appendChild(edit);
 
   const btn = document.createElement("button");
-  btn.className = "jp-cfg-btn"; btn.textContent = "運指変更";
+  btn.className = "jp-cfg-btn"; btn.textContent = t("btn.editFold");
   const msg = document.createElement("span"); msg.className = "jp-cfg-msg";
   btn.addEventListener("click", () => {
     if (btn.dataset.editing !== "1") {
       const set = new Set(foldMap[entry]);
-      for (const [key] of FINGER_CB) boxes[key].checked = set.has(key);
+      for (const key of FINGER_ORDER) boxes[key].checked = set.has(key);
       disp.style.display = "none"; edit.style.display = "";
-      btn.dataset.editing = "1"; btn.textContent = "保存"; msg.textContent = "";
+      btn.dataset.editing = "1"; btn.textContent = t("btn.save"); msg.textContent = "";
       return;
     }
     const chosen = FINGER_ORDER.filter((k) => boxes[k].checked);
     const key = canonFold(chosen);
-    if (!key) { msg.textContent = "1本以上選択してください"; return; }
+    if (!key) { msg.textContent = t("fe.needOne"); return; }
     const others = allEntries.filter((e) => e !== entry).map((e) => canonFold(foldMap[e]));
-    if (others.includes(key)) { msg.textContent = "他の運指と重複"; return; }
+    if (others.includes(key)) { msg.textContent = t("fe.dup"); return; }
     foldMap[entry] = chosen;
     renderDisp();
     disp.style.display = ""; edit.style.display = "none";
-    btn.dataset.editing = ""; btn.textContent = "運指変更"; msg.textContent = "保存しました";
+    btn.dataset.editing = ""; btn.textContent = t("btn.editFold"); msg.textContent = t("fe.saved");
   });
   el.appendChild(btn); el.appendChild(msg);
   return el;
@@ -78,15 +81,15 @@ export function renderFoldConfig(root, opts) {
   if (!root) return;
   root.innerHTML = "";
   if (opts.thresholds) {
-    const t = document.createElement("div");
-    t.className = "jp-cfg-title"; t.textContent = "検出しきい値 (デモ調整・日本語/英語 共通)";
-    root.appendChild(t);
-    root.appendChild(makeSlider("行ロック(ms)", 60, 600, 10, th.HOLD_MS, (v) => { th.HOLD_MS = v; }));
-    root.appendChild(makeSlider("フリック距離", 0.02, 1.00, 0.01, th.FLICK_DIST, (v) => { th.FLICK_DIST = v; }));
-    root.appendChild(makeSlider("親指折りしきい", 0.40, 1.10, 0.02, th.THUMB_FOLD, (v) => { th.THUMB_FOLD = v; }));
+    const title = document.createElement("div");
+    title.className = "jp-cfg-title"; title.textContent = t("fe.thTitle");
+    root.appendChild(title);
+    root.appendChild(makeSlider(t("fe.thHold"), 60, 600, 10, th.HOLD_MS, (v) => { th.HOLD_MS = v; }));
+    root.appendChild(makeSlider(t("fe.thFlick"), 0.02, 1.00, 0.01, th.FLICK_DIST, (v) => { th.FLICK_DIST = v; }));
+    root.appendChild(makeSlider(t("fe.thThumb"), 0.20, 0.90, 0.05, th.THUMB_FOLD, (v) => { th.THUMB_FOLD = v; }));
   }
   const mt = document.createElement("div");
-  mt.className = "jp-cfg-title"; mt.textContent = opts.mapTitle || "運指 (行/操作 → 折り曲げる指)";
+  mt.className = "jp-cfg-title"; mt.textContent = opts.mapTitle || t("fe.mapTitle");
   root.appendChild(mt);
   for (const e of opts.order) root.appendChild(makeRowEditor(e, opts.foldMap, opts.order, opts.labelFn));
 }

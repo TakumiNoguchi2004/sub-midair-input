@@ -5,8 +5,9 @@
 import {
   MP_ASSET, LM, EMA, EDGE_MARGIN, POINTER_STYLE, DEFAULT_TOP_K,
   BACK_HOLD_MS, LANG_COOLDOWN_MS, FLIP_WINDOW_MS, ORIENT_DEADZONE, SWITCH_INPUT_COOLDOWN,
-  INPUT_MODES, MODE_GUIDE,
+  INPUT_MODES,
 } from "./config.js";
+import { t, getLang, setLang, applyStaticI18n } from "./i18n.js";
 import emoji from "./modes/emoji.js";
 import japanese, { jpFlickBackspace, jpFlickClear, renderJapaneseSettings } from "./modes/japanese.js";
 import english, { renderEnglishSettings } from "./modes/english.js";
@@ -33,10 +34,12 @@ export function setCameraState(state, label, detail = "", progress = 0) {
 }
 
 let modeToastTimer = null;
-export function showModeToast(text) {
+// muted=true で灰色トースト (入力結果の通知用: 言語切替など系統のポップアップと区別する)
+export function showModeToast(text, muted = false) {
   const t = $("modeToast");
   if (!t) return;
   t.textContent = text;
+  t.classList.toggle("muted", muted);
   t.classList.add("show");
   if (modeToastTimer) clearTimeout(modeToastTimer);
   modeToastTimer = setTimeout(() => t.classList.remove("show"), 1600);
@@ -96,7 +99,7 @@ export function drawPadCursor(x, y, mode) {
 function updateOrientUI(orient) {
   const el = $("orientLabel");
   if (!el) return;
-  el.textContent = orient === "palm" ? "手のひら" : orient === "back" ? "手の甲" : "—";
+  el.textContent = orient === "palm" ? t("orient.palm") : orient === "back" ? t("orient.back") : t("orient.unknown");
   el.className = "orient-val " + (orient === "back" ? "orient-back" : orient === "palm" ? "orient-palm" : "");
 }
 
@@ -198,7 +201,7 @@ export function updateResultModeUI() {
 export function emojiInput(emojiChar) {
   const output = $("jpFlickOutput");
   if (output) output.value += emojiChar;
-  showModeToast(`${emojiChar} を入力`);
+  showModeToast(t("toast.entered", { c: emojiChar }), true);   // 灰色トーストで一時通知 (永続ログは残さない)
 }
 
 function render(results) {
@@ -208,7 +211,7 @@ function render(results) {
     const card = document.createElement("div");
     card.className = "card";
     card.style.cursor = "pointer";
-    card.title = "クリックで入力結果に追加";
+    card.title = t("card.clickToAdd");
     card.innerHTML = `
       <img src="${r.image_url}" alt="${r.label}" loading="lazy" />
       <div class="label">${r.emoji} ${r.label}</div>
@@ -220,8 +223,8 @@ function render(results) {
 }
 
 async function runJob(url, body, source = "manual") {
-  setStatus("検索中…");
-  if (source === "camera") setCameraState("searching", "検索実行中", "手書き画像を送信しています");
+  setStatus(t("status.searching"));
+  if (source === "camera") setCameraState("searching", t("cam.searchRun"), t("cam.sendingImg"));
   $("grid").innerHTML = "";
   try {
     const res = await fetch(url, {
@@ -234,33 +237,33 @@ async function runJob(url, body, source = "manual") {
       if (job.status === "done") {
         if (resultMode() === "top1") {
           if (job.results.length) {
-            emojiInput(job.results[0].emoji);
-            setStatus(`最高スコア «${job.results[0].emoji}» を入力`);
+            emojiInput(job.results[0].emoji);   // 灰色トーストで通知 (#status には残さない)
+            setStatus("");
           } else {
-            setStatus("該当なし");
+            setStatus(t("status.noresult"));
           }
         } else {
           render(job.results);
-          setStatus(`${job.results.length} 件`);
+          setStatus(t("status.count", { n: job.results.length }));
         }
-        if (source === "camera") setCameraState("detecting", "検出中", "次のジェスチャを待っています");
+        if (source === "camera") setCameraState("detecting", t("cam.detecting"), t("cam.waitNext"));
         return;
       }
       if (job.status === "error") {
-        setStatus("エラー: " + job.error);
-        if (source === "camera") setCameraState("error", "検索エラー", job.error || "検索に失敗しました");
+        setStatus(t("status.error", { e: job.error }));
+        if (source === "camera") setCameraState("error", t("cam.searchErrLabel"), job.error || t("cam.searchFail"));
         return;
       }
     }
   } catch (e) {
-    setStatus("通信エラー: " + e);
-    if (source === "camera") setCameraState("error", "通信エラー", String(e));
+    setStatus(t("status.commErr", { e: String(e) }));
+    if (source === "camera") setCameraState("error", t("cam.commErrLabel"), String(e));
   }
 }
 
 export function searchText() {
   const q = $("q").value.trim();
-  if (!q) { setStatus("テキストを入力してください"); return; }
+  if (!q) { setStatus(t("status.needText")); return; }
   runJob("/api/search/text", { query: q, top_k: effectiveTopK() });
 }
 export function searchImage(source = "manual") {
@@ -274,14 +277,14 @@ export function searchImage(source = "manual") {
 const MODES = { emoji, japanese, english };
 let inputMode = "japanese";   // 画面初期は日本語入力
 export const currentMode = () => MODES[inputMode];
-export function currentModeLabel() { const cur = INPUT_MODES.find((i) => i.id === inputMode); return cur ? cur.label : ""; }
+export function currentModeLabel() { return t("mode." + inputMode); }
 function resetAllModes() { for (const m of Object.values(MODES)) m.reset?.(); }
 
 export function setInputMode(mode) {
   inputMode = mode;
   const current = INPUT_MODES.find((item) => item.id === mode) || INPUT_MODES[2];
   const label = $("inputModeLabel");
-  if (label) label.textContent = current.label;
+  if (label) label.textContent = t("mode." + current.id);
   for (const item of INPUT_MODES) {
     const button = $(item.buttonId);
     if (button) button.classList.toggle("active", item.id === mode);
@@ -290,7 +293,7 @@ export function setInputMode(mode) {
   clearPad();          // モード切替で描画軌跡を完全クリア (別モードへ移動 / 絵文字に戻っても消えたまま)
   clearPadCursor();
   const status = $("jpFlickStatus");
-  if (status) status.textContent = MODE_GUIDE[mode] || "";        // 入力方法ガイド (モード連動)
+  if (status) status.textContent = t("guide." + mode);        // 入力方法ガイド (モード連動)
   applyViewLayout();   // 運指設定/入力欄の表示は testMode と mode に応じて決める
   const resultSetting = $("resultSettingPanel");
   if (resultSetting) resultSetting.style.display = (mode === "emoji") ? "" : "none";
@@ -299,19 +302,20 @@ export function setInputMode(mode) {
   const textSearch = $("textSearchPanel");
   if (textSearch) textSearch.style.display = (mode === "emoji") ? "" : "none";
   if (!mpRunning) {
-    setGesture(current.label);
-    setCameraState("idle", `${current.label}入力モード`, "カメラは停止しています");
+    const ml = t("mode." + current.id);
+    setGesture(ml);
+    setCameraState("idle", t("cam.modeLabel", { label: ml }), t("cam.idleDetail"));
     return;
   }
   if (mode === "japanese") {
-    setGesture("日本語フリック");
-    setCameraState("detecting", "日本語入力モード", "同じピンチを50音フリックとして解釈します");
+    setGesture(t("gesture.jpFlick"));
+    setCameraState("detecting", t("cam.modeLabel", { label: t("mode.japanese") }), t("cam.jpModeDetail"));
   } else if (mode === "emoji") {
-    setGesture("絵文字入力");
-    setCameraState("detecting", "絵文字入力モード", "ピンチ描画 / ピース検索 / 指差しクリア");
+    setGesture(t("gesture.emoji"));
+    setCameraState("detecting", t("cam.modeLabel", { label: t("mode.emoji") }), t("cam.emojiModeDetail"));
   } else {
-    setGesture("英語入力");
-    setCameraState("detecting", "英語入力モード", "動作は未実装です");
+    setGesture(t("gesture.english"));
+    setCameraState("detecting", t("cam.modeLabel", { label: t("mode.english") }), t("cam.enNotImpl"));
   }
 }
 
@@ -369,14 +373,14 @@ function fireLangSwitch(now) {
   inputSuppressUntil = now + SWITCH_INPUT_COOLDOWN;   // 切替直後は少しの間 入力を止める
   cycleInputMode();
   const label = currentModeLabel();
-  showModeToast(`${label} に変更しました`);
+  showModeToast(t("toast.switched", { label }));
   setFlash(`🔁 ${label}`, now + 700);
 }
 
 // カメラ状態表示に言語切替の発火/保持を反映 (反映したら true)
 export function applyLangCamState(langInfo) {
-  if (langInfo.fired) { setCameraState("detecting", `${langInfo.label} に変更しました`, "言語入力モードを切り替えました"); return true; }
-  if (langInfo.charge > 0) { setCameraState("holding", "言語切替 保持中", `手の甲を保持 ${Math.round(langInfo.charge * 100)}%`, langInfo.charge); return true; }
+  if (langInfo.fired) { setCameraState("detecting", t("toast.switched", { label: langInfo.label }), t("cam.langSwitched")); return true; }
+  if (langInfo.charge > 0) { setCameraState("holding", t("cam.langHold"), t("cam.langHoldDetail", { pct: Math.round(langInfo.charge * 100) }), langInfo.charge); return true; }
   return false;
 }
 
@@ -393,8 +397,8 @@ let cursor = null;   // ペン先の平滑化座標 (全モード共通)
 
 async function ensureLandmarker() {
   if (mpLandmarker) return mpLandmarker;
-  setGesture("モデル読み込み中…");
-  setCameraState("loading", "モデル読み込み中", "MediaPipe Hand Landmarker を読み込んでいます");
+  setGesture(t("gesture.modelLoad"));
+  setCameraState("loading", t("cam.modelLoad"), t("cam.modelLoadDetail"));
   const vision = await import(`${MP_ASSET}/vision_bundle.mjs`);
   const fileset = await vision.FilesetResolver.forVisionTasks(`${MP_ASSET}/wasm`);
   mpLandmarker = await vision.HandLandmarker.createFromOptions(fileset, {
@@ -409,25 +413,25 @@ export async function toggleCam() {
   if (mpRunning) { stopCam(); return; }
   try {
     await ensureLandmarker();
-    setGesture("カメラ権限待ち…");
-    setCameraState("permission", "カメラ権限待ち", "ブラウザの許可ダイアログを確認してください");
+    setGesture(t("gesture.permWait"));
+    setCameraState("permission", t("cam.permWait"), t("cam.permDetail"));
     mpStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
     const v = $("cam");
     v.srcObject = mpStream;
     await v.play();
     mpRunning = true;
-    $("camBtn").textContent = "カメラ停止";
-    setGesture("検出中…");
-    setCameraState("detecting", "検出中", "手をカメラ内に入れてください");
+    $("camBtn").textContent = t("btn.camStop");
+    setGesture(t("gesture.detecting"));
+    setCameraState("detecting", t("cam.detecting"), t("cam.handIn"));
     mpLoop();
   } catch (e) {
     const msg = e.message || String(e);
     const denied = e.name === "NotAllowedError" || e.name === "PermissionDeniedError";
-    setGesture((denied ? "権限エラー: " : "カメラエラー: ") + msg);
+    setGesture((denied ? t("gesture.permErrPrefix") : t("gesture.camErrPrefix")) + msg);
     setCameraState(
       denied ? "denied" : "error",
-      denied ? "カメラ権限拒否" : "カメラエラー",
-      denied ? "ブラウザ設定でカメラ権限を許可してから再実行してください" : msg,
+      denied ? t("cam.denyLabel") : t("cam.errLabel"),
+      denied ? t("cam.denyDetail") : msg,
     );
   }
 }
@@ -441,9 +445,9 @@ function stopCam() {
   if (mpStream) mpStream.getTracks().forEach((t) => t.stop());
   mpStream = null; cursor = null;
   resetAllModes(); resetLangState(); clearFlash();
-  $("camBtn").textContent = "カメラ開始";
-  setGesture("—");
-  setCameraState("idle", "待機中", "カメラは停止しています");
+  $("camBtn").textContent = t("btn.camStart");
+  setGesture(t("gesture.dash"));
+  setCameraState("idle", t("cam.idleLabel"), t("cam.idleDetail"));
   const o = $("overlay"); o.getContext("2d").clearRect(0, 0, o.width, o.height);
   clearPadCursor();
 }
@@ -467,8 +471,8 @@ function handleHands(res) {
   octx.clearRect(0, 0, overlay.width, overlay.height);
   const lm = res.landmarks && res.landmarks[0];
   if (!lm) {
-    setGesture("手が見えません");
-    setCameraState("nohand", "手が見つかりません", "手全体が白い検出エリアに入るようにしてください");
+    setGesture(t("gesture.noHand"));
+    setCameraState("nohand", t("cam.noHandLabel"), t("cam.noHandDetail"));
     resetAllModes(); cursor = null; clearPadCursor();
     return;
   }
@@ -476,8 +480,8 @@ function handleHands(res) {
   // 手の一部しか写っていない (palm 見切れ等) は無効化 -> 誤検出・言語切替の連続発火を防ぐ
   if (!handFullyVisible(lm)) {
     drawOverlay(octx, lm, overlay, now);   // 見切れていてもランドマークは表示 (見切れが分かるように)
-    setGesture("手全体を写してください");
-    setCameraState("nohand", "手が見切れています", "手のひら〜指先まで枠内に収めてください");
+    setGesture(t("gesture.handClipped"));
+    setCameraState("nohand", t("cam.clippedLabel"), t("cam.clippedDetail"));
     resetAllModes(); resetLangState(); cursor = null; clearPadCursor();
     return;
   }
@@ -502,8 +506,8 @@ function handleHands(res) {
     currentMode().reset?.();   // 状態を溜めない
     clearPadCursor();
     drawOverlay(octx, lm, overlay, now);
-    setGesture(langInfo.fired ? `🔁 ${langInfo.label}` : "切替直後…");
-    setCameraState("detecting", `${currentModeLabel()}入力モード`, "切替直後: 少し待ってから入力してください");
+    setGesture(langInfo.fired ? `🔁 ${langInfo.label}` : t("gesture.afterSwitch"));
+    setCameraState("detecting", t("cam.modeLabel", { label: currentModeLabel() }), t("cam.afterSwitch"));
     return;
   }
 
@@ -521,7 +525,7 @@ function applyViewLayout() {
   const testPanel = $("inputTestPanel"), grid = $("grid"), btn = $("viewToggle");
   if (testPanel) testPanel.style.display = testMode ? "" : "none";
   if (grid) grid.style.display = testMode ? "none" : "";
-  if (btn) btn.textContent = testMode ? "← 通常ページ" : "テストページ →";
+  if (btn) btn.textContent = testMode ? t("btn.toNormal") : t("btn.toTest");
   // 入力ブロック(入力結果欄)を テスト領域 / 上部ブロック へ移動する
   const block = $("inputBlock"), slot = $("testInputSlot"), proto = document.querySelector(".jp-proto");
   if (block && slot && proto) (testMode ? slot : proto).appendChild(block);
@@ -532,20 +536,32 @@ function applyViewLayout() {
 }
 export function toggleView() { testMode = !testMode; applyViewLayout(); refreshTest(); }
 
+// --- 言語 (日本語 ⇄ 英語) の適用 / トグル ---
+// 静的DOM + 動的に描画したパネル(運指設定/ガイド/モードUI/テスト)を現在言語で再構築する。
+// カメラ稼働中のジェスチャ/状態表示は毎フレーム t() を通すため次フレームで自動反映される。
+export function applyLang() {
+  if (typeof document !== "undefined" && document.documentElement) document.documentElement.lang = getLang();
+  applyStaticI18n();                              // data-i18n を持つ静的要素
+  const lt = $("langToggle"); if (lt) lt.textContent = t("lang.toggle");
+  renderJapaneseSettings();                       // 運指/しきい値エディタ (t() で組み立て)
+  renderEnglishSettings();
+  refreshTest();                                  // テストお題/統計ラベル
+  setInputMode(inputMode);                        // ガイド/モードラベル/カメラ待機表示
+}
+export function toggleLang() { setLang(getLang() === "en" ? "ja" : "en"); applyLang(); }
+
 function init() {
   initHandwriting();
   updateResultModeUI();   // 既定 top-k なので top-k 行を表示
-  renderJapaneseSettings();   // 日本語の運指/しきい値エディタを構築 (日本語モードで表示)
-  renderEnglishSettings();    // 英語の運指エディタを構築 (英語モードで表示)
-  initTest();                 // 入力テストの初期お題
-  setInputMode(inputMode);    // 初期モードに UI を同期 (既定=日本語)
+  initTest();             // 入力テストの初期お題
+  applyLang();            // 言語適用込みで 運指設定/ガイド/モードUI/テスト を構築 (renderXSettings 等を内包)
   $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") searchText(); });
 
   // index.html の onclick="..." から呼べるよう window に載せる
   Object.assign(window, {
     searchText, searchImage, clearPad, toggleCam, setInputMode,
     jpFlickBackspace, jpFlickClear, onLangMethodChange, setOrientInvert, updateResultModeUI,
-    testToggle, testNext, toggleView,
+    testToggle, testNext, toggleView, toggleLang,
   });
 }
 

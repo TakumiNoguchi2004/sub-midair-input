@@ -10,6 +10,7 @@ import {
   getPadCtx, clearPad, searchImage, applyLangCamState,
 } from "../core.js";
 import { foldedSet } from "../foldcore.js";
+import { t } from "../i18n.js";
 
 let penDown = false;                                   // 描画(連続)の状態
 let held = null, holdStart = 0, armed = true, lastFire = 0;  // 単発の状態機械
@@ -61,9 +62,9 @@ export default {
         charge = Math.min(1, (now - holdStart) / HOLD_MS);
         if (charge >= 1) {
           armed = false; lastFire = now; held = null; charge = 0;
-          if (mode === "clear") { clearPad(); setFlash("🧹 クリア", now + 500); fired = "clear"; }
-          else if (mode === "delete") { const o = $("jpFlickOutput"); if (o) o.value = o.value.slice(0, -1); setFlash("⌫ 削除", now + 500); fired = "delete"; }
-          else { searchImage("camera"); setFlash("🔍 検索", now + 500); fired = "submit"; }
+          if (mode === "clear") { clearPad(); setFlash(t("emoji.fClear"), now + 500); fired = "clear"; }
+          else if (mode === "delete") { const o = $("jpFlickOutput"); if (o) o.value = o.value.slice(0, -1); setFlash(t("emoji.fDelete"), now + 500); fired = "delete"; }
+          else { searchImage("camera"); setFlash(t("emoji.fSubmit"), now + 500); fired = "submit"; }
         }
       }
     } else {
@@ -71,31 +72,31 @@ export default {
     }
 
     setGesture(
-      mode === "draw" ? "✏️ 描画中" :
-      mode === "clear" ? "☝️ クリア構え (キープ)" :
-      mode === "submit" ? "✌️ 検索構え (キープ)" :
-      mode === "delete" ? "⌫ 削除構え (キープ)" : "🖐 待機");
+      mode === "draw" ? t("emoji.gDraw") :
+      mode === "clear" ? t("emoji.gClear") :
+      mode === "submit" ? t("emoji.gSubmit") :
+      mode === "delete" ? t("emoji.gDelete") : t("emoji.gIdle"));
     if (langInfo.fired) setGesture(`🔁 ${langInfo.label}`);
-    else if (langInfo.charge > 0) setGesture(`🔁 手の甲キープ ${Math.round(langInfo.charge * 100)}%`);
+    else if (langInfo.charge > 0) setGesture(t("emoji.gLangHold", { pct: Math.round(langInfo.charge * 100) }));
 
     if (applyLangCamState(langInfo)) {
       // 言語切替の発火/保持を優先表示
     } else if (fired === "clear") {
-      setCameraState("detecting", "クリアしました", "次のジェスチャを待っています");
+      setCameraState("detecting", t("emoji.cCleared"), t("cam.waitNext"));
     } else if (fired === "delete") {
-      setCameraState("detecting", "1文字削除しました", "次のジェスチャを待っています");
+      setCameraState("detecting", t("emoji.cDeleted"), t("cam.waitNext"));
     } else if (fired === "submit") {
-      setCameraState("searching", "検索実行中", "検索結果を待っています");
+      setCameraState("searching", t("emoji.cSearchRun"), t("emoji.cSearchWait"));
     } else if (mode === "draw") {
-      setCameraState("drawing", "描画中", "3本ピンチを離すと描画を止めます");
+      setCameraState("drawing", t("emoji.cDrawing"), t("emoji.cDrawDetail"));
     } else if (mode === "clear") {
-      setCameraState("holding", "クリア保持中", `${Math.round(charge * 100)}%`, charge);
+      setCameraState("holding", t("emoji.cClearHold"), `${Math.round(charge * 100)}%`, charge);
     } else if (mode === "delete") {
-      setCameraState("holding", "削除保持中", `${Math.round(charge * 100)}%`, charge);
+      setCameraState("holding", t("emoji.cDeleteHold"), `${Math.round(charge * 100)}%`, charge);
     } else if (mode === "submit") {
-      setCameraState("holding", "検索保持中", `${Math.round(charge * 100)}%`, charge);
+      setCameraState("holding", t("emoji.cSubmitHold"), `${Math.round(charge * 100)}%`, charge);
     } else {
-      setCameraState("detecting", "検出中", "次のジェスチャを待っています");
+      setCameraState("detecting", t("cam.detecting"), t("cam.waitNext"));
     }
   },
 };

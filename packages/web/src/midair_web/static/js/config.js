@@ -5,7 +5,8 @@ export const MP_ASSET = "/assets/vendor/mediapipe";
 
 // MediaPipe Hand Landmarker の 21 点インデックス
 export const LM = {
-  WRIST: 0, THUMB_IP: 3, THUMB_TIP: 4, INDEX_MCP: 5, INDEX_PIP: 6, INDEX_TIP: 8,
+  WRIST: 0, THUMB_CMC: 1, THUMB_MCP: 2, THUMB_IP: 3, THUMB_TIP: 4,
+  INDEX_MCP: 5, INDEX_PIP: 6, INDEX_TIP: 8,
   MIDDLE_MCP: 9, MIDDLE_PIP: 10, MIDDLE_TIP: 12, RING_PIP: 14, RING_TIP: 16,
   PINKY_MCP: 17, PINKY_PIP: 18, PINKY_TIP: 20,
 };
@@ -27,14 +28,9 @@ export const FLIP_WINDOW_MS = 1500;   // 手のひら→甲を「裏返し」と
 export const ORIENT_DEADZONE = 0.12;  // 手のひら/甲を分ける不感帯 (sin(挟み角) 基準)
 export const SWITCH_INPUT_COOLDOWN = 600;  // 言語切替直後にこの ms は入力を止める (回転→入力の遷移での誤入力防止)
 
-// --- 入力モード一覧 & モード別の入力方法ガイド ---
+// --- 入力モード一覧 (表示名/ガイドは i18n.js の DICT を参照) ---
 export const INPUT_MODES = [
-  { id: "japanese", label: "日本語", buttonId: "modeJapanese" },
-  { id: "english", label: "英語", buttonId: "modeEnglish" },
-  { id: "emoji", label: "絵文字", buttonId: "modeEmoji" },
+  { id: "japanese", buttonId: "modeJapanese" },
+  { id: "english", buttonId: "modeEnglish" },
+  { id: "emoji", buttonId: "modeEmoji" },
 ];
-export const MODE_GUIDE = {
-  japanese: "日本語(折り曲げ式): 指を折って行を選び(2進数運指: あ=親,か=人,さ=親人,た=中…)→手をフリック→パーで確定(無フリック=あ段)。中+薬=濁点/半濁点/小。設定パネルで運指/しきい値を調整可。",
-  english: "英語(折り曲げ式): 指を折って行(1-11)を選び→フリックで文字→パーで確定。中+薬=大小トグル / 中+薬+小=削除。下の運指参照表を見ながら操作。",
-  emoji: "絵文字: テキスト / 手書きで検索し、下の候補をクリックで入力。カメラは 3本ピンチで描く / ピースで検索 / 指差しでクリア。",
-};

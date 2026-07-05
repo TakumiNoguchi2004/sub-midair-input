@@ -5,6 +5,7 @@
 //   詳細は docs/japanese_input.md。しきい値/運指は設定UIで調整可 (foldcore.th / foldMap)。
 import { foldFromNumber, createFoldEngine } from "../foldcore.js";
 import { renderFoldConfig } from "../fingereditor.js";
+import { t, dirLabels } from "../i18n.js";
 import {
   $, clearPadCursor, drawPadCursor, setGesture, setCameraState, applyLangCamState,
 } from "../core.js";
@@ -23,7 +24,6 @@ const ROWS = {
   "わ": ["わ", "を", "ん", "ー", "〜"],
 };
 const ROW_ORDER = ["あ", "か", "さ", "た", "な", "は", "ま", "や", "ら", "わ"];
-const DIR_LABELS = ["中央", "左", "上", "右", "下"];
 
 // 濁音/半濁音/小 のループ (対応字がある場合のみ。順: 濁音→半濁音→小→元)
 const DAKUTEN_CYCLES = [
@@ -50,24 +50,24 @@ DEFAULT_FOLD["濁点"] = foldFromNumber(12);   // 中+薬 (濁音/半濁音/小)
 DEFAULT_FOLD["消す"] = foldFromNumber(28);   // 中+薬+小 (親は曲げない)
 export let foldMap = JSON.parse(JSON.stringify(DEFAULT_FOLD));
 
-function entryLabel(e) { return e === "濁点" ? "濁点化" : e === "消す" ? "1文字削除" : `${e}行`; }
+function entryLabel(e) { return e === "濁点" ? t("jp.entry.dakuten") : e === "消す" ? t("jp.entry.delete") : t("jp.entry.row", { e }); }
 
 // --- 出力 ---
 function jpAppend(kana) { const o = $("jpFlickOutput"); if (o) o.value += kana; }
 function jpStatus(text) { const s = $("jpFlickStatus"); if (s) s.textContent = text; }
 function applyDakuten() {
   const o = $("jpFlickOutput");
-  if (!o || !o.value) { jpStatus("濁点化: 直前の文字がありません"); return; }
+  if (!o || !o.value) { jpStatus(t("jp.noPrev")); return; }
   const last = o.value.slice(-1), next = DAKUTEN_NEXT[last];
-  if (next) { o.value = o.value.slice(0, -1) + next; jpStatus(`濁点/半濁点/小: ${last} → ${next}`); }
-  else jpStatus(`濁点化: 「${last}」に対応形なし`);
+  if (next) { o.value = o.value.slice(0, -1) + next; jpStatus(t("jp.dakuApplied", { last, next })); }
+  else jpStatus(t("jp.dakuNone", { last }));
 }
 
 export function jpFlickBackspace() { const o = $("jpFlickOutput"); if (o) o.value = o.value.slice(0, -1); }
 export function jpFlickClear() {
   const o = $("jpFlickOutput"); if (o) o.value = "";
   engine.reset();
-  jpStatus("指を折って行を選び、フリック→パーで確定します。");
+  jpStatus(t("jp.idleHint"));
 }
 
 // --- パー確定時の出力 ---
@@ -75,12 +75,12 @@ function onCommit(entry, flickIndex) {
   if (entry === "濁点") applyDakuten();
   else if (entry === "消す") {
     const o = $("jpFlickOutput");
-    if (o && o.value) { o.value = o.value.slice(0, -1); jpStatus("1文字削除しました"); }
-    else jpStatus("削除: 文字がありません");
+    if (o && o.value) { o.value = o.value.slice(0, -1); jpStatus(t("jp.deleted")); }
+    else jpStatus(t("jp.delEmpty"));
   } else {
     const kana = ROWS[entry][flickIndex];
     jpAppend(kana);
-    jpStatus(`${entry}行 ${DIR_LABELS[flickIndex]} = ${kana}`);
+    jpStatus(t("jp.committed", { e: entry, dir: dirLabels()[flickIndex], kana }));
   }
 }
 
@@ -96,15 +96,15 @@ export default {
     const st = engine.update(lm, now);
     if (st.phase === "locked") {
       const e = st.entry;
-      if (e === "濁点") jpStatus("濁点/半濁点/小: パーに戻すと適用");
-      else if (e === "消す") jpStatus("1文字削除: パーに戻すと実行");
-      else jpStatus(`${e}行 → ${DIR_LABELS[st.flickIndex]}「${ROWS[e][st.flickIndex]}」 (パーで確定)`);
-    } else if (st.phase === "pending") jpStatus(`${entryLabel(st.entry)} …`);
-    else if (st.phase === "idle") jpStatus("パー基準: 指を折って行/操作を選択");
-    else if (st.phase === "unknown") jpStatus("その運指は未割り当て");
-    setGesture(langInfo.fired ? `🔁 ${langInfo.label}` : "日本語(折り曲げ)");
+      if (e === "濁点") jpStatus(t("jp.lockDakuten"));
+      else if (e === "消す") jpStatus(t("jp.lockDelete"));
+      else jpStatus(t("jp.lockRow", { e, dir: dirLabels()[st.flickIndex], kana: ROWS[e][st.flickIndex] }));
+    } else if (st.phase === "pending") jpStatus(t("jp.pending", { label: entryLabel(st.entry) }));
+    else if (st.phase === "idle") jpStatus(t("jp.idle"));
+    else if (st.phase === "unknown") jpStatus(t("jp.unknown"));
+    setGesture(langInfo.fired ? `🔁 ${langInfo.label}` : t("gesture.jpFold"));
     if (!applyLangCamState(langInfo)) {
-      setCameraState("detecting", "日本語入力モード", "指を折って行→フリック→パーで確定");
+      setCameraState("detecting", t("cam.modeLabel", { label: t("mode.japanese") }), t("cam.foldDetail"));
     }
   },
 };
@@ -116,7 +116,7 @@ export function renderJapaneseSettings() {
   renderFoldConfig($("jpFingerConfig"), {
     thresholds: true,
     foldMap, order: ALL_ENTRIES,
-    labelFn: (e) => (SPECIAL_ORDER.includes(e) ? e : `${e}行`),
-    mapTitle: "運指 (行/操作 → 折り曲げる指)",
+    labelFn: (e) => (e === "濁点" ? t("jp.special.dakuten") : e === "消す" ? t("jp.special.delete") : t("jp.entry.row", { e })),
+    mapTitle: t("jp.mapTitle"),
   });
 }

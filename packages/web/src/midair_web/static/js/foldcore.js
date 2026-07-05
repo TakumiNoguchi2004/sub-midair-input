@@ -6,6 +6,8 @@ import { LM } from "./config.js";
 import { dist, fingerUp } from "./core.js";
 
 // 調整用しきい値 (両言語共通・設定UIで変更可)
+//   THUMB_FOLD: 親指の「伸び具合」cos しきい値。中手骨(1→2)と末節骨(3→4)の向きの内積が
+//   これ未満なら折り。1=完全に伸展 / 小さいほど大きく曲げないと折り判定にならない。
 export const th = { HOLD_MS: 150, FLICK_DIST: 0.16, THUMB_FOLD: 0.6 };
 
 export const FINGER_ORDER = ["T", "I", "M", "R", "P"];   // bit0..bit4
@@ -14,9 +16,16 @@ export const canonFold = (arr) => FINGER_ORDER.filter((f) => arr.includes(f)).jo
 // 2進数(行番号) → 折る指集合
 export const foldFromNumber = (n) => FINGER_ORDER.filter((_, i) => n & (1 << i));
 
+// 親指の「折れ方」で判定: 中手骨ベクトル(CMC→MCP)と末節骨ベクトル(IP→TIP)の向きが
+// 揃っていれば伸展(cos≈1)、大きく折れるとcosが下がる。手が正対していなくても
+// 距離の遠近に影響されにくい (手のひら中央への距離では傾き時に誤検出していた)。
 const thumbFolded = (lm) => {
-  const s = dist(lm[LM.WRIST], lm[LM.MIDDLE_MCP]) || 1e-6;
-  return dist(lm[LM.THUMB_TIP], lm[LM.MIDDLE_MCP]) / s < th.THUMB_FOLD;   // 親先が手のひら中央に近い=折り
+  const a = lm[LM.THUMB_CMC], b = lm[LM.THUMB_MCP], c = lm[LM.THUMB_IP], d = lm[LM.THUMB_TIP];
+  const v1x = b.x - a.x, v1y = b.y - a.y;
+  const v2x = d.x - c.x, v2y = d.y - c.y;
+  const n1 = Math.hypot(v1x, v1y) || 1e-6, n2 = Math.hypot(v2x, v2y) || 1e-6;
+  const straight = (v1x * v2x + v1y * v2y) / (n1 * n2);   // cos(親指の折れ角)
+  return straight < th.THUMB_FOLD;
 };
 // 薬指は単独で曲げても第1関節(DIP)が伸びたままのことが多く「立っている」と誤判定されやすい。
 // そこで薬指だけ「立っている」判定を厳しめ(=折り判定を緩め)にする (tip が pip の RING_UP 倍より遠い時だけ立位)。
