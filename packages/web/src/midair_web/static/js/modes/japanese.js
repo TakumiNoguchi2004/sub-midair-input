@@ -438,11 +438,12 @@ export function renderJapaneseSettings() {
 
   const table = document.createElement("table");
   table.className = "jp-cfg-table";
-  table.innerHTML = `<thead><tr><th>行</th><th>小指</th><th>伸ばす指</th></tr></thead>`;
+  table.innerHTML = `<thead><tr><th>行</th><th>伸ばす指</th></tr></thead>`;
   const tbody = document.createElement("tbody");
   for (const r of rowMap) {
+    const fingers = [...r.extend, ...(r.orient === 90 ? ["P"] : [])];
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${r.row}行</td><td>${r.orient === 0 ? "折る" : "伸ばす"}</td><td>${r.extend.join("+")}</td>`;
+    tr.innerHTML = `<td>${r.row}行</td><td>${fingers.join("+")}</td>`;
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
