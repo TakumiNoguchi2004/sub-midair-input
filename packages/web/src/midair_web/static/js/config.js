@@ -12,8 +12,6 @@ export const LM = {
 };
 
 // --- 絵文字ジェスチャ / 共通しきい値 (手の大きさで正規化済み。環境により要微調整) ---
-export const PINCH_ON = 0.55;    // 3本ピンチ(親+人+中)の許容距離: これ未満でペンダウン
-export const PINCH_OFF = 0.80;   // これ超でペンアップ (ヒステリシス)
 export const EMA = 0.5;          // 座標平滑化 (0=動かない,1=生値)
 export const EDGE_MARGIN = 0.1;  // 画角の端(各辺10%)は使わず内側にリマップ (端は手検出が不安定なため)
 export const HOLD_MS = 500;      // 単発(検索/クリア)の確定キープ時間
