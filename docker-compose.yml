@@ -13,6 +13,8 @@ services:
       - "${MIDAIR_WEB_PORT:-8762}:8000"
     volumes:
       - ./data:/app/data          # 画像 + index をホストと共有 (永続)
+      - ./packages/web/src/midair_web/static/js:/app/packages/web/src/midair_web/static/js
+      - ./packages/web/src/midair_web/static/index.html:/app/packages/web/src/midair_web/static/index.html
     restart: unless-stopped
 
   # 基本: 表示用カラー画像を公式から + index を Drive から取得 (各環境で CLIP 推論しない)。
