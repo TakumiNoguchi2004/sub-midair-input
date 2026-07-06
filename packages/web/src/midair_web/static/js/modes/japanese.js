@@ -13,7 +13,7 @@ import {
 let HOLD_MS    = 150;   // 行選択ポーズをこの ms 保持でロック
 let FLICK_DIST = 0.05;  // 基準点からこの距離を超えたらフリック検知
 // 戻り判定: FLICK_DIST * FLICK_RETURN_RATIO 以内に戻ったら次フリックを受け付ける
-const FLICK_RETURN_RATIO = 0.5;
+const FLICK_RETURN_RATIO = 0.8;
 
 // --- かな表 (行の基準字 → [中央, 左, 上, 右, 下]) ---
 const ROWS = {
@@ -74,9 +74,10 @@ function extendedKey(hand) {
   return s.join("");
 }
 
-// |roll| >= 45° を 90°グループ、それ以外を 0°グループとして扱う
+// roll≈0 (前腕ひねりなし) → 0グループ (あ/か/さ/た/な行)
+// roll≈90 (前腕90°ひねり) → 90グループ (は/ま/や/ら/わ行)
 function orientGroup(hand) {
-  return Math.abs(hand.orientation.roll) >= 45 ? 90 : 0;
+  return hand.orientation.roll >= 45 ? 90 : 0;
 }
 
 // extend × orient → 行名 (マッチなければ null)
@@ -168,8 +169,11 @@ function updateJapanese(hand, now) {
     const dir = flickDir(dx, dy);
 
     if (!flickArmed) {
-      // 検知済み: 基準に戻ったら再度受け付け
-      if (d < FLICK_DIST * FLICK_RETURN_RATIO) flickArmed = true;
+      // 検知済み: 基準に近づいたら再アーム (その位置を新しい基準にする)
+      if (d < FLICK_DIST * FLICK_RETURN_RATIO) {
+        flickArmed = true;
+        flickStart = cur;
+      }
       jpStatus(`${lockedRow}行: 基準に戻して次フリック`);
       return;
     }
@@ -209,12 +213,83 @@ function updateJapanese(hand, now) {
 export default {
   id: "japanese",
   label: "日本語",
-  reset() { resetFull(); },
+  reset() { resetFull(); const dbg = $("orientDebug"); if (dbg) dbg.style.display = "none"; },
   onFrame(ctx) {
-    const { cursor, now, langInfo, hand, gesture } = ctx;
+    const { cursor, now, langInfo, hand, gesture, octx } = ctx;
     // CommonGestures delete → 1文字削除
     if (gesture && gesture.fired === "delete") { jpFlickBackspace(); jpStatus("1文字削除"); }
     drawPadCursor(cursor.x, cursor.y, "point");
+    // デバッグ: 手に追従するローカル座標軸をoverlayに描画
+    if (octx) {
+      const lm = hand.lm;
+      const o  = hand.orientation;
+      const W  = octx.canvas.width, H = octx.canvas.height;
+
+      // 手のひら中心 (canvas座標)
+      const cx = (lm[LM.WRIST].x + lm[LM.INDEX_MCP].x + lm[LM.PINKY_MCP].x) / 3 * W;
+      const cy = (lm[LM.WRIST].y + lm[LM.INDEX_MCP].y + lm[LM.PINKY_MCP].y) / 3 * H;
+
+      // hand-state.js で計算済みのボディ固定フレームを再利用
+      const { fx, fy, fz } = hand.bodyFrame;
+
+      const L = 50;
+      const drawArrow = (g, ax, ay, bx, by, color) => {
+        const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy);
+        if (len < 1) return;
+        const nx = dx / len, ny = dy / len;
+        g.strokeStyle = color; g.fillStyle = color; g.lineWidth = 2;
+        g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke();
+        g.beginPath();
+        g.moveTo(bx, by);
+        g.lineTo(bx - nx*9 + ny*4, by - ny*9 - nx*4);
+        g.lineTo(bx - nx*9 - ny*4, by - ny*9 + nx*4);
+        g.closePath(); g.fill();
+      };
+      const drawText = (g, text, canvasX, canvasY, color) => {
+        g.save();
+        g.translate(canvasX, canvasY); g.scale(-1, 1); g.textAlign = "center";
+        g.font = "bold 11px monospace";
+        g.lineWidth = 3; g.strokeStyle = "#000"; g.strokeText(text, 0, 0);
+        g.fillStyle = color; g.fillText(text, 0, 0);
+        g.restore();
+      };
+
+      // 参照ランドマークを色付き点で表示
+      const dot = (g, idx, color) => {
+        const x = lm[idx].x * W, y = lm[idx].y * H;
+        g.beginPath(); g.arc(x, y, 6, 0, Math.PI * 2);
+        g.fillStyle = color; g.fill();
+        g.strokeStyle = "#000"; g.lineWidth = 1.5; g.stroke();
+      };
+      octx.save();
+      // fz (Z軸=青): WRIST → MIDDLE_MCP
+      dot(octx, LM.WRIST,      "#4488ff");
+      dot(octx, LM.MIDDLE_MCP, "#4488ff");
+      // fx (X軸=赤): INDEX_MCP ↔ PINKY_MCP
+      dot(octx, LM.INDEX_MCP,  "#ff4444");
+      dot(octx, LM.PINKY_MCP,  "#ff4444");
+
+      // 3Dベクトルをcanvas 2Dに投影 (x,yのみ使用、orthographic)
+      // 赤: X軸 (横方向)
+      drawArrow(octx, cx, cy, cx + fx[0]*L, cy + fx[1]*L, "#ff4444");
+      drawText(octx, "X", cx + fx[0]*L, cy + fx[1]*L - 8, "#ff6666");
+      // 緑: Y軸 (手のひら法線)
+      drawArrow(octx, cx, cy, cx + fy[0]*L, cy + fy[1]*L, "#00ff44");
+      drawText(octx, "Y", cx + fy[0]*L, cy + fy[1]*L - 8, "#00ff44");
+      // 青: Z軸 (指方向)
+      drawArrow(octx, cx, cy, cx + fz[0]*L, cy + fz[1]*L, "#4488ff");
+      drawText(octx, "Z", cx + fz[0]*L, cy + fz[1]*L - 8, "#88aaff");
+
+      // 角度値をpalm下に縦並び (色 = 対応する回転軸の色)
+      // Roll=Z軸(青)周り, Pitch=X軸(赤)周り, Yaw=Y軸(緑)周り
+      const lx = cx, ly = cy + L + 16;
+      drawText(octx, `R:${o.roll.toFixed(0)}°`,   lx, ly,      "#4488ff"); // Z=青
+      drawText(octx, `P:${o.pitch.toFixed(0)}°`,  lx, ly + 14, "#ff4444"); // X=赤
+      drawText(octx, `Y:${o.yaw.toFixed(0)}°`,    lx, ly + 28, "#00ff44"); // Y=緑
+      drawText(octx, `grp:${orientGroup(hand)}°`, lx, ly + 42, "#ffff00");
+
+      octx.restore();
+    }
     updateJapanese(hand, now);
     // デバッグ: flickStart (基準点) と判定半径を padCursor に重ね描画
     if (lockedRow && flickStart) {
