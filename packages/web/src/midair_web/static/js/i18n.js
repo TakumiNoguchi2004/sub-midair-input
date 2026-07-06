@@ -83,8 +83,8 @@ const DICT = {
     en: "English (fold style): fold fingers to pick a row (1-11) → flick for the letter → open hand to commit. Middle+Ring = case toggle / Middle+Ring+Pinky = delete. See the fingering table below.",
   },
   "guide.emoji": {
-    ja: "絵文字: テキスト / 手書きで検索し、下の候補をクリックで入力。カメラは 3本ピンチで描く / ピースで検索 / 指差しでクリア。",
-    en: "Emoji: search by text/handwriting and click a candidate to enter. On camera: 3-finger pinch to draw / peace to search / index-only to clear.",
+    ja: "絵文字: テキスト / 手書きで検索し、下の候補をクリックで入力。カメラは 人差し指のみ=描画 / グーパーグー=検索 / グーフリップ=クリア。",
+    en: "Emoji: search by text/handwriting and click a candidate to enter. On camera: index-only to draw / fist-open-fist to search / fist-flip to clear.",
   },
 
   // --- 手の向き ---
@@ -136,7 +136,7 @@ const DICT = {
   "cam.langHoldDetail": { ja: "手の甲を保持 {pct}%", en: "Holding back of hand {pct}%" },
   "cam.jpModeDetail": { ja: "同じピンチを50音フリックとして解釈します", en: "Interprets fold + flick as kana input" },
   "cam.foldDetail": { ja: "指を折って行→フリック→パーで確定", en: "Fold to pick a row → flick → open hand to commit" },
-  "cam.emojiModeDetail": { ja: "ピンチ描画 / ピース検索 / 指差しクリア", en: "Pinch to draw / peace to search / point to clear" },
+  "cam.emojiModeDetail": { ja: "人差し指のみ=描画 / グーパーグー=検索 / グーフリップ=クリア", en: "Index-only draw / fist-open-fist search / fist-flip clear" },
   "cam.enNotImpl": { ja: "動作は未実装です", en: "Not implemented yet" },
 
   // --- ジェスチャ表示 (#gesture) ---
@@ -168,7 +168,7 @@ const DICT = {
   "emoji.cCleared": { ja: "クリアしました", en: "Cleared" },
   "emoji.cDeleted": { ja: "1文字削除しました", en: "Deleted one character" },
   "emoji.cDrawing": { ja: "描画中", en: "Drawing" },
-  "emoji.cDrawDetail": { ja: "3本ピンチを離すと描画を止めます", en: "Release the 3-finger pinch to stop drawing" },
+  "emoji.cDrawDetail": { ja: "人差し指を折ると描画を止めます", en: "Fold the index finger to stop drawing" },
   "emoji.cClearHold": { ja: "クリア保持中", en: "Holding to clear" },
   "emoji.cDeleteHold": { ja: "削除保持中", en: "Holding to delete" },
   "emoji.cSubmitHold": { ja: "検索保持中", en: "Holding to search" },

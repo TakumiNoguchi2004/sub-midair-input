@@ -436,17 +436,20 @@ export function renderJapaneseSettings() {
   mapTitle.className = "jp-cfg-title"; mapTitle.textContent = "運指テーブル (orient × extend → 行)";
   root.appendChild(mapTitle);
 
-  const table = document.createElement("table");
+  const legend = document.createElement("div");
+  legend.className = "jp-cfg-legend";
+  legend.innerHTML = "<b>T</b>=親指 / <b>I</b>=人差し指 / <b>M</b>=中指 / <b>P</b>=小指";
+  root.appendChild(legend);
+
+  const table = document.createElement("div");
   table.className = "jp-cfg-table";
-  table.innerHTML = `<thead><tr><th>行</th><th>伸ばす指</th></tr></thead>`;
-  const tbody = document.createElement("tbody");
   for (const r of rowMap) {
     const fingers = [...r.extend, ...(r.orient === 90 ? ["P"] : [])];
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${r.row}行</td><td>${fingers.join("+")}</td>`;
-    tbody.appendChild(tr);
+    const item = document.createElement("div");
+    item.className = "jp-cfg-pair";
+    item.innerHTML = `<b>${r.row}行</b><span>${fingers.join(" + ")}</span>`;
+    table.appendChild(item);
   }
-  table.appendChild(tbody);
   root.appendChild(table);
 }
 
