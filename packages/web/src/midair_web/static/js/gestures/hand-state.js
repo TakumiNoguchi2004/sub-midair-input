@@ -48,15 +48,16 @@ export function computeBodyFrame(lm, handedLabel) {
   return { fx, fy, fz };
 }
 
-// ZXY オイラー角を回転行列から抽出
-// 基準姿勢: palm下, 指カメラ向き → roll=pitch=yaw=0
-// roll=Z軸(指方向)周り, pitch=X軸(横方向)周り, yaw=Y軸(法線)周り
-// 基準: 手のひらカメラ向き, 指上向き → roll=0, pitch=90, yaw=0
+// 基準姿勢からの相対回転を ZXY オイラー角で抽出
+// 基準姿勢: 指上向き(fz=[0,-1,0]), 手のひらカメラ向き(fy=[0,0,+1]), fx=[+1,0,0]
+// R_ref^T の作用: v_rel = [v[0], v[2], -v[1]]
+// → 基準姿勢で roll=pitch=yaw=0、特異点は基準から約90°離れた特殊姿勢のみ
 function computeOrientationFromFrame({ fx, fy, fz }) {
-  const norm = deg => { let d = deg % 360; if (d > 180) d -= 360; if (d < -180) d += 360; return d; };
-  const roll  = norm(Math.atan2(fx[1], fy[1]) * RAD2DEG - 180);
-  const pitch = norm(Math.atan2(fz[0], -fz[2]) * RAD2DEG + 90);
-  const yaw   = norm(Math.asin(Math.max(-1, Math.min(1, -fz[1]))) * RAD2DEG - 90);
+  const norm  = deg => { let d = deg % 360; if (d > 180) d -= 360; if (d < -180) d += 360; return d; };
+  const clamp = x => Math.max(-1, Math.min(1, x));
+  const pitch = Math.asin(clamp(fy[1])) * RAD2DEG;
+  const roll  = norm(Math.atan2(-fy[0], fy[2]) * RAD2DEG);
+  const yaw   = norm(Math.atan2(-fx[1], -fz[1]) * RAD2DEG);
   return { roll, pitch, yaw };
 }
 
@@ -130,10 +131,13 @@ export class HandState {
   /** ランドマーク2点間の2D距離 */
   dist(aIdx, bIdx) { return dist(this.lm[aIdx], this.lm[bIdx]); }
 
-  // palm/back判定用: roll角度ベース, pitch < 45° なら不感帯 (手が立っていない時は無視)
+  // palm/back判定用: 手のひら法線fyのカメラz成分で実際の向きを検出
+  // -fy[2] > 0 → palmがカメラ向き("palm"), < 0 → 背面向き("back")
+  // pitch < 30° (手が倒れている) なら不感帯にして誤検知を防ぐ
   sinRoll() {
-    const { roll, pitch } = this.orientation;
-    const gate = Math.max(0, Math.min(1, (pitch - 30) / 30)); // pitch 30→60° でスムーズに有効化
-    return Math.sin(roll * DEG2RAD) * gate;
+    const { pitch } = this.orientation;
+    // 基準姿勢(pitch=0)付近でフル有効、大きく傾くと不感帯 (|pitch|>60° でゼロ)
+    const gate = Math.max(0, Math.min(1, 1 - Math.abs(pitch) / 60));
+    return -this.bodyFrame.fy[2] * gate;
   }
 }

@@ -11,9 +11,7 @@ import {
 
 // --- 調整用しきい値 ---
 let HOLD_MS    = 150;   // 行選択ポーズをこの ms 保持でロック
-let FLICK_DIST = 0.05;  // 基準点からこの距離を超えたらフリック検知
-// 戻り判定: FLICK_DIST * FLICK_RETURN_RATIO 以内に戻ったら次フリックを受け付ける
-const FLICK_RETURN_RATIO = 0.8;
+let FLICK_DIST = 0.07;  // 基準点からこの距離を超えたらフリック検知 / 戻り判定も同じ距離
 
 // --- かな表 (行の基準字 → [中央, 左, 上, 右, 下]) ---
 const ROWS = {
@@ -74,10 +72,10 @@ function extendedKey(hand) {
   return s.join("");
 }
 
-// roll≈0 (前腕ひねりなし) → 0グループ (あ/か/さ/た/な行)
-// roll≈90 (前腕90°ひねり) → 90グループ (は/ま/や/ら/わ行)
+// 小指折れ → 0グループ (あ/か/さ/た/な行)
+// 小指伸び → 90グループ (は/ま/や/ら/わ行)
 function orientGroup(hand) {
-  return hand.orientation.roll >= 45 ? 90 : 0;
+  return hand.fingers.pinky ? 90 : 0;
 }
 
 // extend × orient → 行名 (マッチなければ null)
@@ -113,18 +111,82 @@ function applyDakuten() {
 export function jpFlickBackspace() { const o = $("jpFlickOutput"); if (o) o.value = o.value.slice(0, -1); }
 export function jpFlickClear() {
   const o = $("jpFlickOutput"); if (o) o.value = "";
-  resetState();
+  resetFull();
   jpStatus("クリアしました");
 }
 
 // --- 状態機械 ---
-let lockedRow  = null;   // ロック中の行名 (null = 未ロック)
-let rowPending = null;   // { row, since, ref } 行選択のデバウンス候補
-let flickStart = null;   // ポーズロック時の手のひら基準座標 (固定)
-let flickArmed = true;   // true=フリック受付中, false=検知済み・基準に戻るまで待機
+let lockedRow   = null;   // ロック中の行名 (null = 未ロック)
+let rowPending  = null;   // { row, since } 行選択のデバウンス候補
+let flickStart  = null;   // フリック基準座標 (最後のパー位置 or ロック時位置)
+let flickArmed  = true;   // true=フリック受付中, false=検知済み・基準に戻るまで待機
+let lastOpenPos = null;   // 最後に isOpen だったときの palmPoint
+
+// --- JP専用削除ステートマシン ---
+const DEL_QUICK_MS     = 1000;  // これ以内に戻したら1文字削除
+const DEL_HOLD_MS      = 1000;  // これ以上保持したら全削除
+const DEL_ROLL_FLIP    = 60;    // グー握った時点から roll がこれ以上変化したらフリップ (deg)
+const DEL_ROLL_NEUTRAL = 30;    // この範囲内に戻ったら中立 (deg)
+let _delCanFire   = false;
+let _delFlipAt    = -1;
+let _delBaseRoll  = 0;          // グー握った瞬間の roll ベースライン
+
+function rollDelta(roll) {
+  let d = roll - _delBaseRoll;
+  if (d > 180) d -= 360;
+  if (d < -180) d += 360;
+  return d;
+}
+
+function updateDelete(hand, now) {
+  const roll = hand.orientation.roll;
+  const delta = rollDelta(roll);
+  const ret = (action, extra = {}) =>
+    ({ action, phase: "idle", progress: 0, flippedMs: 0, isFlipped: Math.abs(delta) > DEL_ROLL_FLIP, ...extra });
+
+  if (!hand.isFist) {
+    _delCanFire = false; _delFlipAt = -1;
+    return ret(null, { phase: "idle" });
+  }
+
+  // グーを握った直後にベースラインを記録
+  if (!_delCanFire) {
+    _delBaseRoll = roll;
+    _delCanFire = true;
+  }
+
+  const isFlipped = Math.abs(delta) > DEL_ROLL_FLIP;
+  const isNeutral = Math.abs(delta) < DEL_ROLL_NEUTRAL;
+
+  if (isNeutral) {
+    if (_delFlipAt > 0) {
+      const held = now - _delFlipAt;
+      _delFlipAt = -1;
+      if (held < DEL_QUICK_MS) {
+        _delCanFire = false;
+        return ret("delete1", { isFlipped: false });
+      }
+    }
+    return ret(null, { phase: "armed" });
+  }
+
+  if (isFlipped) {
+    if (_delFlipAt < 0) _delFlipAt = now;
+    const held     = now - _delFlipAt;
+    const progress = Math.min(1, held / DEL_HOLD_MS);
+    if (held >= DEL_HOLD_MS) {
+      _delFlipAt = -1; _delCanFire = false;
+      return ret("deleteAll", { isFlipped: false });
+    }
+    return ret(null, { phase: "flipped", progress, flippedMs: held, isFlipped: true });
+  }
+
+  return ret(null, { phase: _delCanFire ? "armed" : "idle" });
+}
 
 function resetFull() {
-  lockedRow = null; rowPending = null; flickStart = null; flickArmed = true;
+  lockedRow = null; rowPending = null; flickStart = null; flickArmed = true; lastOpenPos = null;
+  _delCanFire = false; _delFlipAt = -1; _delBaseRoll = 0;
 }
 
 function updateJapanese(hand, now) {
@@ -145,16 +207,16 @@ function updateJapanese(hand, now) {
     }
 
     // ポーズが変わった → HOLD_MS で新しい行へ切り替え (レスト不要)
+    // flickStart はパーからポーズへの遷移時のみ更新するためここでは変えない
     if (row !== lockedRow) {
-      flickArmed = true;
       if (!row) { rowPending = null; jpStatus(`${lockedRow}行 (未割り当て)`); return; }
       if (!rowPending || rowPending.row !== row) {
-        rowPending = { row, since: now, ref: hand.palmPoint };
+        rowPending = { row, since: now };
       } else if (now - rowPending.since >= HOLD_MS) {
         lockedRow  = row;
-        flickStart = rowPending.ref;
-        rowPending = null; flickArmed = true;
-        jpStatus(`${row}行: フリックで母音 / グーであ段`);
+        rowPending = null;
+        flickArmed = false;   // 基準点へ戻るまでフリック判定を停止
+        jpStatus(`${row}行: マージンに戻ってからフリック / グーであ段`);
       } else { jpStatus(`${row}行…`); }
       return;
     }
@@ -169,11 +231,8 @@ function updateJapanese(hand, now) {
     const dir = flickDir(dx, dy);
 
     if (!flickArmed) {
-      // 検知済み: 基準に近づいたら再アーム (その位置を新しい基準にする)
-      if (d < FLICK_DIST * FLICK_RETURN_RATIO) {
-        flickArmed = true;
-        flickStart = cur;
-      }
+      // マージン内に戻ったらフリック受付再開 (基準点は変えない)
+      if (d < FLICK_DIST) flickArmed = true;
       jpStatus(`${lockedRow}行: 基準に戻して次フリック`);
       return;
     }
@@ -194,6 +253,7 @@ function updateJapanese(hand, now) {
   // ---- 非ロック ----
   if (isRest) {
     rowPending = null;
+    if (hand.isOpen) lastOpenPos = hand.palmPoint;
     jpStatus(orientGroup(hand) === 90 ? "90°: は/ま/や/ら/わ行" : "0°: あ/か/さ/た/な行");
     return;
   }
@@ -201,10 +261,10 @@ function updateJapanese(hand, now) {
   // ---- 中間状態: 行選択 ----
   if (!row) { rowPending = null; jpStatus("未割り当て"); return; }
   if (!rowPending || rowPending.row !== row) {
-    rowPending = { row, since: now, ref: hand.palmPoint };
+    rowPending = { row, since: now };
   } else if (now - rowPending.since >= HOLD_MS) {
     lockedRow  = row;
-    flickStart = rowPending.ref;
+    flickStart = lastOpenPos ?? hand.palmPoint;
     rowPending = null; flickArmed = true;
     jpStatus(`${row}行: フリックで母音 / グーであ段`);
   } else { jpStatus(`${row}行…`); }
@@ -215,9 +275,28 @@ export default {
   label: "日本語",
   reset() { resetFull(); const dbg = $("orientDebug"); if (dbg) dbg.style.display = "none"; },
   onFrame(ctx) {
-    const { cursor, now, langInfo, hand, gesture, octx } = ctx;
-    // CommonGestures delete → 1文字削除
-    if (gesture && gesture.fired === "delete") { jpFlickBackspace(); jpStatus("1文字削除"); }
+    const { cursor, now, langInfo, orient, hand, gesture, octx } = ctx;
+    // JP専用削除: フリップ即戻し→1文字, 保持→全削除
+    const del  = updateDelete(hand, now);
+    if (del.action === "delete1")        { jpFlickBackspace(); jpStatus("1文字削除"); }
+    else if (del.action === "deleteAll") { jpFlickClear(); }
+    if (hand.isFist) {
+      if (del.isFlipped && octx) {
+        octx.save();
+        octx.fillStyle = "rgba(255,60,60,0.30)";
+        octx.fillRect(0, 0, octx.canvas.width, octx.canvas.height);
+        octx.restore();
+      }
+      const roll = hand.orientation.roll;
+      if (del.phase === "flipped") {
+        const remaining = Math.max(0, Math.round(DEL_QUICK_MS - del.flippedMs));
+        jpStatus(`roll:${roll.toFixed(0)}° フリップ検出 / 戻す→1文字(${remaining}ms) / 保持→全削除(${Math.round(del.progress * 100)}%)`);
+      } else if (del.phase === "armed") {
+        jpStatus(`roll:${roll.toFixed(0)}° グー検出 / 傾けて削除`);
+      } else {
+        jpStatus(`roll:${roll.toFixed(0)}° グー`);
+      }
+    }
     drawPadCursor(cursor.x, cursor.y, "point");
     // デバッグ: 手に追従するローカル座標軸をoverlayに描画
     if (octx) {
@@ -291,20 +370,44 @@ export default {
       octx.restore();
     }
     updateJapanese(hand, now);
-    // デバッグ: flickStart (基準点) と判定半径を padCursor に重ね描画
+    // flickStart (基準点) の可視化: マージン円 + X字仕切り + 現在位置への線
     if (lockedRow && flickStart) {
       const el = $("padCursor");
       if (el) {
         const g = el.getContext("2d");
-        const px = flickStart.x * el.width, py = flickStart.y * el.height;
+        const px = flickStart.x * el.width,  py = flickStart.y * el.height;
+        const cx = hand.palmPoint.x * el.width, cy = hand.palmPoint.y * el.height;
         const r  = FLICK_DIST * el.width;
+        const ready = flickArmed;
+        const rimColor = ready ? "#00cc44" : "#ff8800";
+
         g.save();
-        g.strokeStyle = flickArmed ? "#00cc44" : "#ff8800";
+
+        // 現在位置 → 基準点への線
+        g.strokeStyle = "rgba(255,255,255,0.3)";
+        g.lineWidth = 1;
+        g.beginPath(); g.moveTo(cx, cy); g.lineTo(px, py); g.stroke();
+
+        // X字仕切り (マージン外まで伸ばす)
+        const ext = r * 2;
+        g.strokeStyle = rimColor;
+        g.lineWidth = 1;
+        g.globalAlpha = 0.4;
+        g.beginPath();
+        g.moveTo(px - ext, py - ext); g.lineTo(px + ext, py + ext);
+        g.moveTo(px + ext, py - ext); g.lineTo(px - ext, py + ext);
+        g.stroke();
+        g.globalAlpha = 1.0;
+
+        // マージン円
+        g.strokeStyle = rimColor;
         g.lineWidth = 2;
-        g.beginPath(); g.arc(px, py, 8, 0, Math.PI * 2); g.stroke();
-        g.setLineDash([4, 4]);
         g.beginPath(); g.arc(px, py, r, 0, Math.PI * 2); g.stroke();
-        g.setLineDash([]);
+
+        // 基準点ドット
+        g.fillStyle = rimColor;
+        g.beginPath(); g.arc(px, py, 5, 0, Math.PI * 2); g.fill();
+
         g.restore();
       }
     }
@@ -335,11 +438,11 @@ export function renderJapaneseSettings() {
 
   const table = document.createElement("table");
   table.className = "jp-cfg-table";
-  table.innerHTML = `<thead><tr><th>行</th><th>向き</th><th>伸ばす指</th></tr></thead>`;
+  table.innerHTML = `<thead><tr><th>行</th><th>小指</th><th>伸ばす指</th></tr></thead>`;
   const tbody = document.createElement("tbody");
   for (const r of rowMap) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${r.row}行</td><td>${r.orient}°</td><td>${r.extend.join("+")}</td>`;
+    tr.innerHTML = `<td>${r.row}行</td><td>${r.orient === 0 ? "折る" : "伸ばす"}</td><td>${r.extend.join("+")}</td>`;
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);

@@ -9,6 +9,7 @@ import {
 } from "./config.js";
 import { HandState, dist } from "./gestures/hand-state.js";
 import { CommonGestures } from "./gestures/common-gestures.js";
+import { LandmarkSmoother } from "./gestures/one-euro-filter.js";
 import { t, getLang, setLang, applyStaticI18n } from "./i18n.js";
 import emoji from "./modes/emoji.js";
 import japanese, { jpFlickBackspace, jpFlickClear, renderJapaneseSettings } from "./modes/japanese.js";
@@ -357,6 +358,10 @@ export function applyLangCamState(langInfo) {
 // UI ハンドラ (インライン属性から呼ぶため window に載せる)
 export function onLangMethodChange(v) { langMethod = v; backHoldStart = 0; langArmed = true; sawPalmAt = -1; }
 export function setOrientInvert(v) { orientInverted = v; }
+export function setFilterParams(minCutoff, beta) {
+  landmarkSmoother.updateParams({ minCutoff, beta });
+  landmarkSmoother.reset();
+}
 function resetLangState() { curOrient = "unknown"; sawPalmAt = -1; backHoldStart = 0; langArmed = true; }
 
 // =====================================================================
@@ -365,6 +370,8 @@ function resetLangState() { curOrient = "unknown"; sawPalmAt = -1; backHoldStart
 let mpLandmarker = null, mpStream = null, mpRunning = false, mpRaf = null, mpLastTs = -1;
 let cursor = null;           // ペン先の平滑化座標 (全モード共通)
 const commonGestures = new CommonGestures();  // 決定 / 削除 の検出器
+const landmarkSmoother = new LandmarkSmoother({ minCutoff: 10.0, beta: 0.01 });
+let prevFrameTime = null;    // OneEuroFilter の dt 計算用
 
 async function ensureLandmarker() {
   if (mpLandmarker) return mpLandmarker;
@@ -441,20 +448,25 @@ function mpLoop() {
 function handleHands(res) {
   const overlay = $("overlay"), octx = overlay.getContext("2d");
   octx.clearRect(0, 0, overlay.width, overlay.height);
-  const lm = res.landmarks && res.landmarks[0];
-  if (!lm) {
+  const rawLm = res.landmarks && res.landmarks[0];
+  if (!rawLm) {
     setGesture(t("gesture.noHand"));
     setCameraState("nohand", t("cam.noHandLabel"), t("cam.noHandDetail"));
-    commonGestures.reset(); resetAllModes(); cursor = null; clearPadCursor();
+    commonGestures.reset(); landmarkSmoother.reset(); resetAllModes(); cursor = null; clearPadCursor();
+    prevFrameTime = null;
     return;
   }
   const now = performance.now();
+  const dt  = prevFrameTime !== null ? Math.max((now - prevFrameTime) / 1000, 1e-4) : 1 / 30;
+  prevFrameTime = now;
+  const lm  = landmarkSmoother.smooth(rawLm, dt);
   // 手の一部しか写っていない (palm 見切れ等) は無効化 -> 誤検出・言語切替の連続発火を防ぐ
   if (!handFullyVisible(lm)) {
     drawOverlay(octx, lm, overlay, now);   // 見切れていてもランドマークは表示 (見切れが分かるように)
     setGesture(t("gesture.handClipped"));
     setCameraState("nohand", t("cam.clippedLabel"), t("cam.clippedDetail"));
-    commonGestures.reset(); resetAllModes(); resetLangState(); cursor = null; clearPadCursor();
+    commonGestures.reset(); landmarkSmoother.reset(); resetAllModes(); resetLangState(); cursor = null; clearPadCursor();
+    prevFrameTime = null;
     return;
   }
 
@@ -540,7 +552,7 @@ function init() {
   Object.assign(window, {
     searchText, searchImage, clearPad, toggleCam, setInputMode,
     jpFlickBackspace, jpFlickClear, onLangMethodChange, setOrientInvert, updateResultModeUI,
-    testToggle, testNext, toggleView, toggleLang,
+    testToggle, testNext, toggleView, toggleLang, setFilterParams,
   });
 }
 
