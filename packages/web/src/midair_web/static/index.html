@@ -8,7 +8,8 @@
   :root { --bg:#0f1115; --panel:#1a1d24; --line:#2a2f3a; --fg:#e6e9ef; --muted:#9aa3b2; --accent:#5b8cff; }
   * { box-sizing: border-box; }
   body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--fg); }
-  header { padding:18px 24px; border-bottom:1px solid var(--line); }
+  header { padding:18px 24px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; gap:16px; }
+  .view-toggle { white-space:nowrap; font-weight:600; }
   header h1 { margin:0; font-size:18px; }
   header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
   main { display:grid; grid-template-columns: 360px 1fr; gap:0; min-height: calc(100vh - 64px); }
@@ -64,7 +65,7 @@
   .cam-meter-bar { width:0%; height:100%; background:var(--accent); transition:width 80ms linear; }
   .jp-proto { margin-top:10px; padding:10px 12px; border:1px dashed #3b4250; border-radius:8px;
     background:rgba(17,20,26,0.72); }
-  .jp-proto textarea { width:100%; min-height:76px; resize:vertical; margin-top:8px; padding:8px 10px;
+  #jpFlickOutput { width:100%; min-height:76px; resize:vertical; margin-top:8px; padding:8px 10px;
     border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--fg);
     font-size:18px; line-height:1.5; }
   .jp-proto-status { margin-top:8px; color:var(--muted); font-size:12px; line-height:1.5; min-height:36px; }
@@ -90,6 +91,7 @@
     background:var(--accent); color:#fff; font-weight:700; font-size:15px; padding:10px 18px;
     border-radius:10px; box-shadow:0 6px 24px rgba(0,0,0,0.35); opacity:0; pointer-events:none;
     transition:opacity .2s, transform .2s; z-index:50; }
+  .mode-toast.muted { background:#5b6472; }   /* 入力結果通知 (言語切替などのポップアップと区別) */
   .mode-toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
   /* 日本語 運指/しきい値 設定UI */
   .jp-cfg { margin-top:8px; }
@@ -99,7 +101,7 @@
   .jp-cfg-th input[type=range] { flex:1; min-width:0; }
   .jp-cfg-thval { flex:0 0 46px; text-align:right; color:var(--fg); font-variant-numeric:tabular-nums; }
   .jp-cfg-row { display:flex; align-items:center; gap:6px; font-size:11px; margin:3px 0; flex-wrap:wrap; }
-  .jp-cfg-rowlabel { flex:0 0 34px; color:var(--fg); font-weight:700; }
+  .jp-cfg-rowlabel { flex:0 0 auto; min-width:34px; margin-right:4px; color:var(--fg); font-weight:700; }
   .jp-cfg-cb { display:inline-flex; align-items:center; gap:2px; color:var(--muted); cursor:pointer; }
   .jp-cfg-disp, .jp-cfg-edit { display:inline-flex; gap:7px; flex-wrap:wrap; align-items:center; }
   .jp-cfg-on { color:#5bff8c; font-weight:700; }
@@ -107,17 +109,35 @@
   .jp-cfg-btn { padding:2px 8px; font-size:11px; }
   .jp-cfg-msg { color:#ffd15b; font-size:10px; }
   .jp-cfg-fixed { color:var(--muted); }
+  /* 入力テストパネル */
+  .test-panel { margin-top:16px; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:var(--panel); }
+  .test-panel h2 { margin:0 0 8px; font-size:14px; color:var(--muted); }
+  .test-row { font-size:14px; margin:4px 0; }
+  .test-row b { font-size:18px; }
+  .test-prog { color:var(--muted); font-size:12px; margin-left:8px; }
+  #testYour { font-size:16px; }
+  .test-result { margin-top:8px; font-weight:700; min-height:20px; }
+  .test-result.ok { color:#5bff8c; }
+  .test-result.ng { color:#ff5b5b; }
+  .test-stats { display:flex; gap:14px; flex-wrap:wrap; margin-top:8px; font-size:13px; color:var(--muted); }
+  .test-stats b { color:var(--fg); font-size:15px; font-variant-numeric:tabular-nums; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Mid-Air Emoji Search</h1>
-  <p>テキスト or 手書きで絵文字を検索（非同期バックグラウンド処理）</p>
+  <div class="header-title">
+    <h1>Mid-Air Emoji Search</h1>
+    <p data-i18n="header.sub">テキスト or 手書きで絵文字を検索（非同期バックグラウンド処理）</p>
+  </div>
+  <div class="header-actions" style="display:flex;gap:8px;align-items:center">
+    <button id="langToggle" class="view-toggle" onclick="toggleLang()">EN</button>
+    <button id="viewToggle" class="view-toggle" onclick="toggleView()">テストページ →</button>
+  </div>
 </header>
 <main>
   <section class="inputs">
     <div class="panel">
-      <h2>Mid-Air 入力 (カメラ)</h2>
+      <h2 data-i18n="panel.camera">Mid-Air 入力 (カメラ)</h2>
       <div class="cam-wrap">
         <video id="cam" playsinline muted></video>
         <canvas id="pad" width="320" height="240"></canvas>
@@ -125,22 +145,22 @@
         <canvas id="padCursor" width="320" height="240"></canvas>
       </div>
       <div class="row">
-        <button class="primary" id="camBtn" onclick="toggleCam()">カメラ開始</button>
+        <button class="primary" id="camBtn" onclick="toggleCam()" data-i18n="btn.camStart">カメラ開始</button>
         <span id="gesture">—</span>
       </div>
       <div class="row" id="drawActions">
-        <button class="primary" onclick="searchImage()">この絵で検索</button>
-        <button onclick="clearPad()">クリア</button>
+        <button class="primary" onclick="searchImage()" data-i18n="btn.searchDrawing">この絵で検索</button>
+        <button onclick="clearPad()" data-i18n="btn.clear">クリア</button>
       </div>
       <div class="cam-status" id="camStatus" data-state="idle">
         <div class="cam-status-head">
           <span class="cam-dot"></span>
-          <span id="camStateLabel">待機中</span>
+          <span id="camStateLabel" data-i18n="cam.idleLabel">待機中</span>
         </div>
-        <div class="cam-detail" id="camStateDetail">カメラは停止しています</div>
+        <div class="cam-detail" id="camStateDetail" data-i18n="cam.idleDetail">カメラは停止しています</div>
         <div class="cam-meter" id="camMeter"><div class="cam-meter-bar" id="camMeterBar"></div></div>
       </div>
-      <p class="hint">
+      <p class="hint" data-i18n-html="hint.main">
         ・🔁 <b>言語切替</b> = <b>手を開いたまま</b>手のひら→手の甲へ裏返す（日本語 → 英語 → 絵文字）<br>
         ・<b>指を折って入力している間</b>は言語切替しない（手を開いた時だけ切替）<br>
         ・モード切替や方式変更は右「入力結果」下のパネルから
@@ -148,11 +168,11 @@
     </div>
 
     <div class="panel" id="resultSettingPanel">
-      <h2>検索結果</h2>
+      <h2 data-i18n="panel.results">検索結果</h2>
       <div class="row">
         <select id="resultMode" style="flex:1" onchange="updateResultModeUI()">
-          <option value="topk">候補を top-k 表示（クリックで入力）</option>
-          <option value="top1" selected>最高スコアの1件を自動入力</option>
+          <option value="topk" data-i18n="opt.topk">候補を top-k 表示（クリックで入力）</option>
+          <option value="top1" selected data-i18n="opt.top1">最高スコアの1件を自動入力</option>
         </select>
       </div>
       <div class="row" id="topkRow">
@@ -162,10 +182,10 @@
     </div>
 
     <div class="panel" id="textSearchPanel">
-      <h2>テキスト検索</h2>
-      <input id="q" type="text" placeholder="例: smiling cat / red heart / fire" />
+      <h2 data-i18n="panel.textsearch">テキスト検索</h2>
+      <input id="q" type="text" data-i18n-ph="ph.query" placeholder="例: smiling cat / red heart / fire" />
       <div class="row">
-        <button class="primary" onclick="searchText()">検索</button>
+        <button class="primary" onclick="searchText()" data-i18n="btn.search">検索</button>
       </div>
     </div>
   </section>
@@ -173,35 +193,56 @@
   <section class="results-wrap">
     <div id="status"></div>
     <div class="jp-proto">
-      <div class="mode-row"><span>現在の入力モード</span><strong id="inputModeLabel">絵文字</strong></div>
+      <div class="mode-row"><span data-i18n="label.currentMode">現在の入力モード</span><strong id="inputModeLabel">絵文字</strong></div>
       <div class="mode-buttons">
-        <button id="modeJapanese" onclick="setInputMode('japanese')">日本語</button>
-        <button id="modeEnglish" onclick="setInputMode('english')">英語</button>
-        <button id="modeEmoji" class="active" onclick="setInputMode('emoji')">絵文字</button>
+        <button id="modeJapanese" onclick="setInputMode('japanese')" data-i18n="mode.japanese">日本語</button>
+        <button id="modeEnglish" onclick="setInputMode('english')" data-i18n="mode.english">英語</button>
+        <button id="modeEmoji" class="active" onclick="setInputMode('emoji')" data-i18n="mode.emoji">絵文字</button>
       </div>
       <div id="jpFlickStatus" class="jp-proto-status">絵文字: テキスト / 手書きで検索し、下の候補をクリックで入力。カメラは 3本ピンチで描く / ピースで検索 / 指差しでクリア。</div>
       <div id="jpFingerConfig" class="jp-cfg" style="display:none"></div>
-      <div class="mode-row" style="margin-top:8px"><span>言語切替モーション</span>
+      <div id="enRef" class="jp-cfg" style="display:none"></div>
+      <div class="mode-row" style="margin-top:8px"><span data-i18n="label.langMotion">言語切替モーション</span>
         <select id="langMethodSel" onchange="onLangMethodChange(this.value)">
-          <option value="off">なし（未割り当て）</option>
-          <option value="holdback">手の甲を0.5秒</option>
-          <option value="flip" selected>手のひら→甲にひっくり返す</option>
+          <option value="off" data-i18n="opt.langoff">なし（未割り当て）</option>
+          <option value="holdback" data-i18n="opt.holdback">手の甲を0.5秒</option>
+          <option value="flip" selected data-i18n="opt.flip">手のひら→甲にひっくり返す</option>
         </select>
       </div>
-      <div class="mode-row"><span>いま検出中の手の向き</span><span id="orientLabel" class="orient-val">—</span></div>
-      <div class="mode-row"><span>検出が逆のとき</span>
+      <div class="mode-row"><span data-i18n="label.orient">いま検出中の手の向き</span><span id="orientLabel" class="orient-val">—</span></div>
+      <div class="mode-row"><span data-i18n="label.orientInvert">検出が逆のとき</span>
         <label class="k" style="display:flex;gap:6px;align-items:center;cursor:pointer">
-          <input type="checkbox" id="orientInvert" onchange="setOrientInvert(this.checked)" /> 手のひら/甲を反転
+          <input type="checkbox" id="orientInvert" onchange="setOrientInvert(this.checked)" /> <span data-i18n="label.invertCheck">手のひら/甲を反転</span>
         </label>
       </div>
-      <div class="mode-row" style="margin-top:10px"><span>入力結果</span></div>
-      <textarea id="jpFlickOutput" spellcheck="false" placeholder="ここに入力結果が入ります（絵文字は下の候補をクリックで追加）"></textarea>
-      <div class="row">
-        <button onclick="jpFlickBackspace()">削除</button>
-        <button onclick="jpFlickClear()">クリア</button>
+      <div id="inputBlock">
+        <div class="mode-row" style="margin-top:10px"><span data-i18n="label.inputResult">入力結果</span></div>
+        <textarea id="jpFlickOutput" spellcheck="false" data-i18n-ph="ph.output" placeholder="ここに入力結果が入ります（絵文字は下の候補をクリックで追加）"></textarea>
+        <div class="row">
+          <button onclick="jpFlickBackspace()" data-i18n="btn.delete">削除</button>
+          <button onclick="jpFlickClear()" data-i18n="btn.clear">クリア</button>
+        </div>
       </div>
     </div>
     <div id="grid" class="grid"></div>
+    <div id="inputTestPanel" class="test-panel" style="display:none">
+      <h2 data-i18n="panel.test">入力テスト</h2>
+      <div class="test-row"><span data-i18n="label.prompt">お題:</span> <b id="testTarget"></b> <span id="testProgress" class="test-prog"></span></div>
+      <div id="testInputSlot"></div>
+      <div class="row">
+        <button class="primary" id="testStartBtn" onclick="testToggle()" data-i18n="btn.testStart">入力開始</button>
+        <button onclick="testNext()" data-i18n="btn.next">次のお題</button>
+      </div>
+      <div class="test-stats">
+        <span><span data-i18n="test.time">時間</span> <b id="statTime">0.0</b>s</span>
+        <span><span data-i18n="test.inputs">入力</span> <b id="statInputs">0</b><span data-i18n="test.times">回</span></span>
+        <span><span data-i18n="test.miss">ミス</span> <b id="statMiss">0</b><span data-i18n="test.times">回</span></span>
+        <span><span data-i18n="test.avg">平均入力</span> <b id="statAvg">0.0</b><span data-i18n="test.perchar">回/字</span></span>
+        <span><span data-i18n="test.acc">正解率</span> <b id="statAcc">0</b>%</span>
+      </div>
+      <div id="testResult" class="test-result"></div>
+      <p class="hint" data-i18n-html="hint.test">「入力開始」で計測開始 → モードを切り替えながらお題を入力 → 「終了」。空白数は無視して正誤判定します。</p>
+    </div>
     <div id="modeToast" class="mode-toast"></div>
   </section>
 </main>
