@@ -2,25 +2,16 @@
 //   描く   = 人差し指のみ伸展 (中指/薬指/小指は折れている)
 //   検索   = グーパーグー (共通ジェスチャー: confirm)
 //   クリア = グーフリップ (共通ジェスチャー: delete)
-import { LM } from "../config.js";
 import { setGesture, setCameraState, drawPadCursor, setFlash,
-  getPadCtx, clearPad, searchImage, applyLangCamState, dist,
+  getPadCtx, clearPad, searchImage, applyLangCamState,
 } from "../core.js";
 
 let penDown = false;
 
-// 描画判定用の人差し指伸展しきい値 (共通の fingerExtended より厳しめ)。
-// 少し伸ばしただけで反応しないよう、PIP からの距離をより大きく要求する。
-const DRAW_EXTEND_RATIO = 1.35;
-function indexClearlyExtended(hand) {
-  const lm = hand.lm;
-  return dist(lm[LM.INDEX_TIP], lm[LM.WRIST]) > dist(lm[LM.INDEX_PIP], lm[LM.WRIST]) * DRAW_EXTEND_RATIO;
-}
-
-// 人差し指がはっきり伸展 (中指/薬指/小指は折れている) = 描画。グーは除外。
+// 人差し指のみ伸展 (中指/薬指/小指は折れている) = 描画。グーは除外。
 function classifyDraw(hand) {
   if (hand.isFist) return "neutral";
-  if (indexClearlyExtended(hand) && !hand.fingers.middle && !hand.fingers.ring && !hand.fingers.pinky) {
+  if (hand.fingers.index && !hand.fingers.middle && !hand.fingers.ring && !hand.fingers.pinky) {
     return "draw";
   }
   return "neutral";
