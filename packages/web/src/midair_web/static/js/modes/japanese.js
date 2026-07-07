@@ -223,10 +223,10 @@ function updateModifier(roll) {
   if (d < -180) d += 360;
   if (!_modIsFlipping && Math.abs(d) > MOD_ROLL_FLIP) {
     _modIsFlipping = true;
+    cycleModifier();
   } else if (_modIsFlipping && Math.abs(d) < MOD_ROLL_NEUTRAL) {
     _modIsFlipping = false;
     _modBaseRoll = roll;
-    cycleModifier();
   }
 }
 
