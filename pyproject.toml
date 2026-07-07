@@ -28,3 +28,4 @@ midair-app = { workspace = true }
 midair-web = { workspace = true }
 midair-shared = { workspace = true }
 emoji-search = { workspace = true }
+japanese-search = { workspace = true }

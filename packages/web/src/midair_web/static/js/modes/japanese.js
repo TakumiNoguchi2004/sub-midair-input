@@ -8,6 +8,12 @@
 //   フリップ中(ロール角がニュートラルから外れている間)は姿勢判定(グー/パー/行)を凍結し、
 //   指の見え方が乱れても誤爆しないようにする
 //   CommonGestures delete (グーを握ってひねる) → 1文字削除 / 全削除
+//
+//   かな漢字変換 (非ロック時のみ):
+//     パーへ遷移 (スペース相当) → 未変換部分を変換 (2回目以降はフォーカス中の候補を送る)
+//     パーのまま上下フリック → フォーカス中セグメントの候補を送る
+//     パーのまま左右フリック → フォーカスするセグメントを移動
+//     パーから離れる (グー/行選択どちらへでも) → その時点の候補で確定
 import { LM } from "../config.js";
 import {
   dist, fingerUp, $, clearPadCursor, drawPadCursor, setGesture, setCameraState, applyLangCamState,
@@ -123,11 +129,80 @@ function applyDakuten() {
   else jpStatus(`「${last}」に対応形なし`);
 }
 
-export function jpFlickBackspace() { const o = $("jpFlickOutput"); if (o) o.value = o.value.slice(0, -1); }
+export function jpFlickBackspace() {
+  const o = $("jpFlickOutput");
+  if (o) { o.value = o.value.slice(0, -1); convertedUpTo = Math.min(convertedUpTo, o.value.length); }
+  convSegments = null; convFocus = 0;
+}
 export function jpFlickClear() {
   const o = $("jpFlickOutput"); if (o) o.value = "";
   resetFull();
+  convertedUpTo = 0; convSegments = null; convFocus = 0; wasOpen = false;
   jpStatus("クリアしました");
+}
+
+// =====================================================================
+//  かな漢字変換 (辞書ベース。バックエンド /api/convert/kanji を呼ぶ)
+// =====================================================================
+async function requestConvert(text) {
+  try {
+    const res = await fetch("/api/convert/kanji", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.segments || [];
+  } catch {
+    return [];
+  }
+}
+
+function renderConversionPreview() {
+  const o = $("jpFlickOutput");
+  if (!o || !convSegments) return;
+  const head = o.value.slice(0, convertedUpTo);
+  o.value = head + convSegments.map((s) => s.candidates[s.sel]).join("");
+}
+
+function cycleCandidate(idx, dir) {
+  const seg = convSegments && convSegments[idx];
+  if (!seg) return;
+  const n = seg.candidates.length;
+  seg.sel = ((seg.sel + dir) % n + n) % n;
+  renderConversionPreview();
+}
+
+function moveConvFocus(dir) {
+  if (!convSegments) return;
+  const n = convSegments.length;
+  convFocus = ((convFocus + dir) % n + n) % n;
+}
+
+function commitConversion() {
+  if (!convSegments) return;
+  renderConversionPreview();
+  const o = $("jpFlickOutput");
+  if (o) convertedUpTo = o.value.length;
+  convSegments = null; convFocus = 0;
+}
+
+// パーへ遷移した瞬間(スペース相当): 未変換なら変換開始、変換中ならフォーカス中の候補を送る
+function startOrAdvanceConversion() {
+  if (convPending) return;
+  if (convSegments) { cycleCandidate(convFocus, +1); return; }
+  const o = $("jpFlickOutput");
+  const target = o ? o.value.slice(convertedUpTo) : "";
+  if (!target) return;
+  convPending = true;
+  requestConvert(target).then((segments) => {
+    convPending = false;
+    if (!segments.length) return;
+    convSegments = segments.map((s) => ({ ...s, sel: 0 }));
+    convFocus = 0;
+    renderConversionPreview();
+  });
 }
 
 // --- 状態機械 ---
@@ -139,6 +214,16 @@ let lastOpenPos = null;   // 最後に isOpen だったときの palmPoint
 let leftMargin  = false;  // 現在の確定サイクル中に一度でも FLICK_DIST 外に出たか (中央フリップ確定は移動しないため、これが true にならない限り再アームしない)
 let centerBaseRoll = 0;   // あ段確定用フリップのロール基準 (中央保持中に追従)
 let centerFlipping = false; // あ段確定用フリップの検出中フラグ
+
+// --- かな漢字変換ステートマシン (非ロック時のみ) ---
+const CONV_FLICK_DIST = 0.10;  // 候補送り/セグメント移動フリックの検知距離
+let wasOpen        = false;  // 直前フレームで isOpen だったか (パーのエッジ検出用)
+let convertedUpTo  = 0;      // ここまでは変換確定済み (この位置以降だけが次回の変換対象)
+let convSegments   = null;   // 変換中のセグメント [{reading, candidates, sel}, ...] | null
+let convFocus      = 0;      // フォーカス中のセグメント index
+let convPending    = false;  // 変換API呼び出し中 (多重発火防止)
+let convFlickStart = null;   // 候補送り/セグメント移動フリックの基準点
+let convFlickArmed = true;
 
 // --- JP専用削除ステートマシン ---
 const DEL_QUICK_MS     = 1000;  // これ以内に戻したら1文字削除
@@ -264,6 +349,12 @@ function updateJapanese(hand, now) {
   const isRest = hand.isFist || hand.isOpen;
   const row    = isRest ? null : extendToRow(hand);
 
+  // かな漢字変換: パーから離れた瞬間 (グー/行選択どちらへ移っても) その時点の候補で確定する
+  const openEdgeIn  = hand.isOpen && !wasOpen;
+  const openEdgeOut = !hand.isOpen && wasOpen;
+  if (openEdgeOut && convSegments) commitConversion();
+  wasOpen = hand.isOpen;
+
   // ---- ロック中 ----
   if (lockedRow) {
     // フリップ中(手首を大きくひねっている間)は指の見え方が乱れて別の姿勢(グー/パー/別行)に
@@ -372,7 +463,31 @@ function updateJapanese(hand, now) {
   // ---- 非ロック ----
   if (isRest) {
     rowPending = null;
-    if (hand.isOpen) lastOpenPos = hand.palmPoint;
+    if (hand.isOpen) {
+      lastOpenPos = hand.palmPoint;
+      if (openEdgeIn) {
+        // パーへ遷移した瞬間 = スペース (未変換なら変換開始、変換中なら次候補へ)
+        startOrAdvanceConversion();
+        convFlickStart = hand.palmPoint; convFlickArmed = true;
+      }
+      if (convSegments) {
+        if (!convFlickStart) convFlickStart = hand.palmPoint;
+        const cur = hand.palmPoint;
+        const dx = cur.x - convFlickStart.x, dy = cur.y - convFlickStart.y;
+        const d  = Math.hypot(dx, dy);
+        if (convFlickArmed && d >= CONV_FLICK_DIST) {
+          if (Math.abs(dx) > Math.abs(dy)) moveConvFocus(dx < 0 ? -1 : 1);
+          else cycleCandidate(convFocus, dy < 0 ? -1 : 1);
+          convFlickArmed = false;
+        } else if (!convFlickArmed && d < CONV_FLICK_DIST) {
+          convFlickArmed = true; convFlickStart = hand.palmPoint;
+        }
+        const seg = convSegments[convFocus];
+        jpStatus(`変換 [${convFocus + 1}/${convSegments.length}] ${seg.candidates[seg.sel]}: `
+          + "上下=候補 / 左右=移動セグメント / 手を戻すと確定");
+        return;
+      }
+    }
     jpStatus(orientGroup(hand) === 90 ? "90°: は/ま/や/ら/わ行" : "0°: あ/か/さ/た/な行");
     return;
   }
@@ -394,7 +509,14 @@ function updateJapanese(hand, now) {
 export default {
   id: "japanese",
   label: "日本語",
-  reset() { resetFull(); const dbg = $("orientDebug"); if (dbg) dbg.style.display = "none"; },
+  reset() {
+    resetFull();
+    convSegments = null; convFocus = 0; convPending = false; wasOpen = false;
+    // モードに入った時点で既に入力欄にある文字 (他モードでの入力等) は変換対象にしない
+    const o = $("jpFlickOutput");
+    convertedUpTo = o ? o.value.length : 0;
+    const dbg = $("orientDebug"); if (dbg) dbg.style.display = "none";
+  },
   onFrame(ctx) {
     const { now, langInfo, orient, hand, gesture, octx } = ctx;
     // JP専用削除: フリップ即戻し→1文字, 保持→全削除
@@ -548,7 +670,7 @@ export default {
     }
     setGesture(langInfo.fired ? `-> ${langInfo.label}` : "日本語");
     if (!applyLangCamState(langInfo)) {
-      setCameraState("detecting", "日本語入力モード", "指を伸ばして行選択 / フリックで方向 or グー or フリップであ段");
+      setCameraState("detecting", "日本語入力モード", "指を伸ばして行選択 / フリックで方向 or グー or フリップであ段 / パーで変換");
     }
   },
 };

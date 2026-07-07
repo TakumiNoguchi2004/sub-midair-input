@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "midair-shared",
     "emoji-search",
+    "japanese-search",
     "fastapi",
     "uvicorn",
 ]
@@ -16,6 +17,7 @@ midair-web = "midair_web.__main__:main"
 [tool.uv.sources]
 midair-shared = { workspace = true }
 emoji-search = { workspace = true }
+japanese-search = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

@@ -25,6 +25,7 @@ from PIL import Image
 from pydantic import BaseModel
 
 from emoji_search.searcher import EmojiSearcher
+from japanese_search.searcher import JapaneseSearcher
 
 # データルートは MIDAIR_DATA_DIR 優先 (Docker 等)、無ければ repo root/data。
 # .../packages/web/src/midair_web/app.py -> parents[4] = repo root
@@ -57,6 +58,15 @@ async def get_searcher() -> EmojiSearcher:
                     DATA_DIR / "metadata.jsonl",
                 )
     return _searcher
+
+
+# かな漢字変換は辞書引きのみで軽量なため、EmojiSearcher のような
+# 非同期ジョブ/遅延ロードは不要。プロセス起動時に 1 度だけ生成する。
+_japanese_searcher = JapaneseSearcher()
+
+
+class ConvertQuery(BaseModel):
+    text: str
 
 
 # --- 非同期ジョブ管理 (プロセス内メモリ) ---
@@ -134,6 +144,12 @@ async def search_image(query: ImageQuery) -> dict:
     job_id = _new_job()
     asyncio.create_task(_process(job_id, lambda s: s.search_image(image, query.top_k)))
     return {"job_id": job_id, "status": "pending"}
+
+
+@app.post("/api/convert/kanji")
+def convert_kanji(query: ConvertQuery) -> dict:
+    """ひらがな文字列 -> セグメント単位のかな漢字変換候補。辞書引きのみで軽量なため同期処理。"""
+    return {"segments": _japanese_searcher.convert(query.text)}
 
 
 @app.get("/api/jobs/{job_id}")
