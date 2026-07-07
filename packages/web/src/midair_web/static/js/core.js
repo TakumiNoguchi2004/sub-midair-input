@@ -432,6 +432,26 @@ function stopCam() {
   clearPadCursor();
 }
 
+// 現在入力中の文字(#jpFlickOutput の末尾)をハイライト表示に反映する。
+// 濁点フリップなど、末尾の文字がまだ確定後も変化しうるモードで
+// 「いま編集中の文字」が分かるようにするための読み取り専用ビュー。
+function refreshCharHighlight() {
+  const o = $("jpFlickOutput"), d = $("jpCharHighlight");
+  if (!o || !d) return;
+  const v = o.value;
+  d.innerHTML = "";
+  if (v) {
+    d.appendChild(document.createTextNode(v.slice(0, -1)));
+    const cur = document.createElement("span");
+    cur.className = "jp-cur-char";
+    cur.textContent = v.slice(-1);
+    d.appendChild(cur);
+  }
+  const bar = document.createElement("span");
+  bar.className = "jp-cursor-bar";
+  d.appendChild(bar);
+}
+
 function mpLoop() {
   if (!mpRunning) return;
   const v = $("cam");
@@ -447,6 +467,7 @@ function mpLoop() {
 
 // 1 フレームの読み取り: 手→HandState を生成し、現在の入力モードへ振り分ける
 function handleHands(res) {
+  refreshCharHighlight();   // 手の検出状態に関わらず、テキストの変化は常に反映する
   const overlay = $("overlay"), octx = overlay.getContext("2d");
   octx.clearRect(0, 0, overlay.width, overlay.height);
   const rawLm = res.landmarks && res.landmarks[0];
@@ -506,6 +527,7 @@ function handleHands(res) {
   // 現在の入力モードへ振り分け (hand / gesture を追加)
   currentMode().onFrame({ lm: hand.lm, now, cursor: hand.cursor, orient, backFacing, langInfo, octx, overlay, hand, gesture });
   drawOverlay(octx, lm, overlay, now);
+  refreshCharHighlight();
 }
 
 // =====================================================================
@@ -556,9 +578,12 @@ function init() {
   // index.html の onclick="..." から呼べるよう window に載せる
   Object.assign(window, {
     searchText, searchImage, clearPad, toggleCam, setInputMode,
-    jpFlickBackspace, jpFlickClear, onLangMethodChange, setOrientInvert, updateResultModeUI,
+    jpFlickBackspace: () => { jpFlickBackspace(); refreshCharHighlight(); },
+    jpFlickClear: () => { jpFlickClear(); refreshCharHighlight(); },
+    onLangMethodChange, setOrientInvert, updateResultModeUI,
     testToggle, testNext, toggleView, toggleLang, setFilterParams,
   });
+  refreshCharHighlight();
 }
 
 init();

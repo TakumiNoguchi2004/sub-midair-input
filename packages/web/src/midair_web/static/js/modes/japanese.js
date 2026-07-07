@@ -164,23 +164,35 @@ function angleDelta(a, b) {
   return d;
 }
 
-function updateDelete(hand, now) {
+// neutralHint: 直前の行ロック中の「真のニュートラル角度」(centerBaseRoll)。
+// フリップ確定直後は手首がまだひねられたままのことがあり、その状態でグーを握ると
+// 「ひねった角度」がベースラインになってしまい、その後ニュートラルへ戻す動き自体を
+// 削除フリップと誤検出してしまう。そのため、ニュートラルの手がかりが分かっている間は
+// 実際にその角度付近まで戻ってから削除トラッキングを開始する。
+function updateDelete(hand, now, neutralHint) {
   const roll = hand.orientation.roll;
-  const delta = rollDelta(roll);
   const ret = (action, extra = {}) =>
-    ({ action, phase: "idle", progress: 0, flippedMs: 0, isFlipped: Math.abs(delta) > DEL_ROLL_FLIP, ...extra });
+    ({ action, phase: "idle", progress: 0, flippedMs: 0,
+       isFlipped: _delCanFire && Math.abs(rollDelta(roll)) > DEL_ROLL_FLIP, ...extra });
 
   if (!hand.isFist) {
     _delCanFire = false; _delFlipAt = -1;
     return ret(null, { phase: "idle" });
   }
 
-  // グーを握った直後にベースラインを記録
+  // グーを握った直後にベースラインを記録。
+  // ニュートラルの手がかりがある場合、そこから大きく離れている間(直前のフリップの
+  // 回転が残っている間)は削除トラッキングの開始を待つ。
   if (!_delCanFire) {
+    if (neutralHint !== undefined && neutralHint !== null &&
+        Math.abs(angleDelta(roll, neutralHint)) > DEL_ROLL_NEUTRAL) {
+      return ret(null, { phase: "idle" });
+    }
     _delBaseRoll = roll;
     _delCanFire = true;
   }
 
+  const delta = rollDelta(roll);
   const isFlipped = Math.abs(delta) > DEL_ROLL_FLIP;
   const isNeutral = Math.abs(delta) < DEL_ROLL_NEUTRAL;
 
@@ -398,7 +410,8 @@ export default {
   onFrame(ctx) {
     const { now, langInfo, orient, hand, gesture, octx } = ctx;
     // JP専用削除: フリップ即戻し→1文字, 保持→全削除
-    const del = updateDelete(hand, now);
+    // (行ロック中は centerBaseRoll = このセッションの真のニュートラル角度をヒントとして渡す)
+    const del = updateDelete(hand, now, lockedRow ? centerBaseRoll : null);
     if (del.action === "delete1")        { jpFlickBackspace(); jpStatus("1文字削除"); }
     else if (del.action === "deleteAll") { jpFlickClear(); }
     if (hand.isFist) {
