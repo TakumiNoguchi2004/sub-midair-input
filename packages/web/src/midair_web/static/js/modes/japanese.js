@@ -3,8 +3,10 @@
 //   中間状態 (T/I/M のいずれかを伸展) + orientation(0°/90°) → 行選択
 //   フリック(手を動かす) → 方向を即自動確定
 //   グー(握る) → あ段を即確定 (濁点サイクルへは繋がらないシンプルな確定)
-//   フリップ(指を伸ばしたまま中央で手首をひねる) → あ段を確定
-//   確定直後、同じポーズのままもう一度フリップ → 濁点/半濁点サイクル
+//   フリップ(指を伸ばしたまま中央で手首をひねる) → あ段を確定 (濁点があれば素の文字を経由せず濁点形から開始)
+//   確定直後、同じポーズのままもう一度フリップ → 濁点/半濁点/元 をさらにサイクル
+//   フリップ中(ロール角がニュートラルから外れている間)は姿勢判定(グー/パー/行)を凍結し、
+//   指の見え方が乱れても誤爆しないようにする
 //   CommonGestures delete (グーを握ってひねる) → 1文字削除 / 全削除
 import { LM } from "../config.js";
 import {
@@ -264,37 +266,46 @@ function updateJapanese(hand, now) {
 
   // ---- ロック中 ----
   if (lockedRow) {
-    // パー → キャンセル
-    if (hand.isOpen) { resetFull(); jpStatus("キャンセル"); return; }
-
-    // グー → あ段を確定してロック解除 (即確定。削除ジェスチャーとの衝突を避けるため
-    // 濁点サイクルへは繋げない。濁点まで続けたい場合はフリップ方式を使う)
-    if (hand.isFist) {
-      const kana = ROWS[lockedRow][0];
-      jpAppend(kana);
-      jpStatus(`${lockedRow}行 中央 → ${kana}`);
-      resetRowState();
-      return;
-    }
-
-    // フリップ中(手首を大きくひねっている間)は指の見え方が乱れて誤った行に見えやすいため、
-    // その間は行の再判定を凍結し、ロック中の行のまま扱う
+    // フリップ中(手首を大きくひねっている間)は指の見え方が乱れて別の姿勢(グー/パー/別行)に
+    // 誤検出されやすいため、その間は姿勢による判定を全て凍結し、ロック中の行のまま扱う
+    // (は行などフリップの回転量が大きい行で特に指が隠れやすいための安定化)
     const rollBase = flickArmed ? centerBaseRoll : _modBaseRoll;
     const midFlip  = Math.abs(angleDelta(hand.orientation.roll, rollBase)) > MOD_ROLL_NEUTRAL;
 
-    // ポーズが変わった → HOLD_MS で新しい行へ切り替え (レスト不要)
-    // flickStart はパーからポーズへの遷移時のみ更新するためここでは変えない
-    if (!midFlip && row !== lockedRow) {
-      if (!row) { rowPending = null; jpStatus(`${lockedRow}行 (未割り当て)`); return; }
-      if (!rowPending || rowPending.row !== row) {
-        rowPending = { row, since: now };
-      } else if (now - rowPending.since >= HOLD_MS) {
-        lockedRow  = row;
-        rowPending = null;
-        flickArmed = false;   // 基準点へ戻るまでフリック判定を停止
-        jpStatus(`${row}行: マージンに戻ってからフリック / グー or フリップであ段`);
-      } else { jpStatus(`${row}行…`); }
-      return;
+    if (!midFlip) {
+      // パー → キャンセル
+      if (hand.isOpen) { resetFull(); jpStatus("キャンセル"); return; }
+
+      // グー → あ段を確定してロック解除 (即確定。削除ジェスチャーとの衝突を避けるため
+      // 濁点サイクルへは繋げない。濁点まで続けたい場合はフリップ方式を使う)
+      // ただし、このロック中に既にフリック/フリップで何か確定済み(flickArmed=false)の場合は
+      // 「あ段」を二重に追加せず、単に終了(ロック解除)だけ行う
+      if (hand.isFist) {
+        if (flickArmed) {
+          const kana = ROWS[lockedRow][0];
+          jpAppend(kana);
+          jpStatus(`${lockedRow}行 中央 → ${kana}`);
+        } else {
+          jpStatus(`${lockedRow}行 終了`);
+        }
+        resetRowState();
+        return;
+      }
+
+      // ポーズが変わった → HOLD_MS で新しい行へ切り替え (レスト不要)
+      // flickStart はパーからポーズへの遷移時のみ更新するためここでは変えない
+      if (row !== lockedRow) {
+        if (!row) { rowPending = null; jpStatus(`${lockedRow}行 (未割り当て)`); return; }
+        if (!rowPending || rowPending.row !== row) {
+          rowPending = { row, since: now };
+        } else if (now - rowPending.since >= HOLD_MS) {
+          lockedRow  = row;
+          rowPending = null;
+          flickArmed = false;   // 基準点へ戻るまでフリック判定を停止
+          jpStatus(`${row}行: マージンに戻ってからフリック / グー or フリップであ段`);
+        } else { jpStatus(`${row}行…`); }
+        return;
+      }
     }
 
     // 同じ行: フリック / フリップ判定
@@ -338,12 +349,15 @@ function updateJapanese(hand, now) {
       const rd = angleDelta(roll, centerBaseRoll);
       if (!centerFlipping && Math.abs(rd) > MOD_ROLL_FLIP) {
         centerFlipping = true;
-        const kana = ROWS[lockedRow][0];
+        const base = ROWS[lockedRow][0];
+        // 濁点があれば素の文字を経由せず、確定と同時に濁点形から始める
+        const hasDaku = !!DAKUTEN_MAP[base];
+        const kana = hasDaku ? DAKUTEN_MAP[base] : base;
         jpAppend(kana);
         jpStatus(`${lockedRow}行 中央 → ${kana}`);
         // 確定に使ったこのフリップ自体を「1回目」として消費済み扱いにし、
-        // 次にニュートラルへ戻ってからのフリップで濁点化させる
-        _modOrigChar = kana; _modState = 0;
+        // 次にニュートラルへ戻ってからのフリップでさらにサイクルさせる
+        _modOrigChar = base; _modState = hasDaku ? 1 : 0;
         _modBaseRoll = centerBaseRoll; _modIsFlipping = true;
         flickArmed = false;
         return;
