@@ -329,7 +329,7 @@ export default {
   label: "日本語",
   reset() { resetFull(); const dbg = $("orientDebug"); if (dbg) dbg.style.display = "none"; },
   onFrame(ctx) {
-    const { cursor, now, langInfo, orient, hand, gesture, octx } = ctx;
+    const { now, langInfo, orient, hand, gesture, octx } = ctx;
     // JP専用削除: フリップ即戻し→1文字, 保持→全削除
     const del  = updateDelete(hand, now);
     if (del.action === "delete1")        { jpFlickBackspace(); jpStatus("1文字削除"); }
@@ -351,7 +351,7 @@ export default {
         jpStatus(`roll:${roll.toFixed(0)}° グー`);
       }
     }
-    drawPadCursor(cursor.x, cursor.y, "point");
+    drawPadCursor(hand.indexTip.x, hand.indexTip.y, "point");
     // デバッグ: 手に追従するローカル座標軸をoverlayに描画
     if (octx) {
       const lm = hand.lm;

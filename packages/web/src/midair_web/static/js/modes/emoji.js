@@ -22,7 +22,7 @@ export default {
   label: "絵文字",
   reset() { penDown = false; },
   onFrame(ctx) {
-    const { lm, cursor, now, langInfo, hand, gesture } = ctx;
+    const { now, langInfo, hand, gesture } = ctx;
     const drawMode = classifyDraw(hand);
 
     const tip = hand.indexTip;
