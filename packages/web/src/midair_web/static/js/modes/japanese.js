@@ -43,6 +43,17 @@ for (const cyc of DAKUTEN_CYCLES) {
   for (let i = 0; i < arr.length; i++) DAKUTEN_NEXT[arr[i]] = arr[(i + 1) % arr.length];
 }
 
+// フリップ修飾用: 濁音・半濁音のみ (小文字変形は含めない)
+const DAKUTEN_MAP = Object.fromEntries([
+  ["か","が"],["き","ぎ"],["く","ぐ"],["け","げ"],["こ","ご"],
+  ["さ","ざ"],["し","じ"],["す","ず"],["せ","ぜ"],["そ","ぞ"],
+  ["た","だ"],["ち","ぢ"],["つ","づ"],["て","で"],["と","ど"],
+  ["は","ば"],["ひ","び"],["ふ","ぶ"],["へ","べ"],["ほ","ぼ"],
+]);
+const HANDAKUTEN_MAP = Object.fromEntries([
+  ["は","ぱ"],["ひ","ぴ"],["ふ","ぷ"],["へ","ぺ"],["ほ","ぽ"],
+]);
+
 // --- 運指テーブル: orient(0°/90°) × extend(T/I/M) → 行 ---
 // orient 0  = 手のひらが通常向き (|roll| < 45°)
 // orient 90 = 手を90°傾けた向き (|roll| >= 45°)
@@ -184,9 +195,49 @@ function updateDelete(hand, now) {
   return ret(null, { phase: _delCanFire ? "armed" : "idle" });
 }
 
+// --- 修飾ステートマシン (フリック後の濁点/半濁点サイクル) ---
+const MOD_ROLL_FLIP    = 60;
+const MOD_ROLL_NEUTRAL = 30;
+let _modOrigChar   = null;   // フリック直後の元の文字
+let _modState      = 0;      // 0=なし, 1=濁点, 2=半濁点
+let _modBaseRoll   = 0;
+let _modIsFlipping = false;
+
+function cycleModifier() {
+  if (!_modOrigChar) return;
+  const o = $("jpFlickOutput");
+  if (!o || !o.value) return;
+  if      (_modState === 0 && DAKUTEN_MAP[_modOrigChar])    _modState = 1;
+  else if (_modState === 1 && HANDAKUTEN_MAP[_modOrigChar]) _modState = 2;
+  else _modState = 0;
+  const newChar = _modState === 0 ? _modOrigChar
+                : _modState === 1 ? DAKUTEN_MAP[_modOrigChar]
+                : HANDAKUTEN_MAP[_modOrigChar];
+  o.value = o.value.slice(0, -1) + newChar;
+}
+
+function updateModifier(roll) {
+  if (!_modOrigChar) return;
+  let d = roll - _modBaseRoll;
+  if (d > 180) d -= 360;
+  if (d < -180) d += 360;
+  if (!_modIsFlipping && Math.abs(d) > MOD_ROLL_FLIP) {
+    _modIsFlipping = true;
+  } else if (_modIsFlipping && Math.abs(d) < MOD_ROLL_NEUTRAL) {
+    _modIsFlipping = false;
+    _modBaseRoll = roll;
+    cycleModifier();
+  }
+}
+
+function resetModState() {
+  _modOrigChar = null; _modState = 0; _modBaseRoll = 0; _modIsFlipping = false;
+}
+
 function resetFull() {
   lockedRow = null; rowPending = null; flickStart = null; flickArmed = true; lastOpenPos = null;
   _delCanFire = false; _delFlipAt = -1; _delBaseRoll = 0;
+  resetModState();
 }
 
 function updateJapanese(hand, now) {
@@ -231,9 +282,10 @@ function updateJapanese(hand, now) {
     const dir = flickDir(dx, dy);
 
     if (!flickArmed) {
-      // マージン内に戻ったらフリック受付再開 (基準点は変えない)
-      if (d < FLICK_DIST) flickArmed = true;
-      jpStatus(`${lockedRow}行: 基準に戻して次フリック`);
+      updateModifier(hand.orientation.roll);
+      if (d < FLICK_DIST) { flickArmed = true; resetModState(); }
+      const modLabel = _modState === 1 ? " [濁]" : _modState === 2 ? " [半濁]" : "";
+      jpStatus(`${lockedRow}行: 基準に戻して次フリック${modLabel} / フリップで濁点`);
       return;
     }
 
@@ -242,6 +294,8 @@ function updateJapanese(hand, now) {
       const kana = ROWS[lockedRow][dir];
       jpAppend(kana);
       jpStatus(`${lockedRow}行 ${DIR_LABELS[dir]} → ${kana}`);
+      _modOrigChar = kana; _modState = 0;
+      _modBaseRoll = hand.orientation.roll; _modIsFlipping = false;
       flickArmed = false;
       return;
     }
@@ -407,6 +461,20 @@ export default {
         // 基準点ドット
         g.fillStyle = rimColor;
         g.beginPath(); g.arc(px, py, 5, 0, Math.PI * 2); g.fill();
+
+        // 修飾状態バッジ (゛/゜) - フリック後のモディファイア状態
+        if (_modState > 0) {
+          const mark  = _modState === 1 ? "゛" : "゜";
+          const color = _modState === 1 ? "#5bff8c" : "#5b8cff";
+          g.font = "bold 36px system-ui";
+          g.textAlign = "center";
+          g.textBaseline = "bottom";
+          g.shadowColor = "rgba(0,0,0,0.9)";
+          g.shadowBlur = 8;
+          g.fillStyle = color;
+          g.fillText(mark, px, py - r - 4);
+          g.shadowBlur = 0;
+        }
 
         g.restore();
       }
