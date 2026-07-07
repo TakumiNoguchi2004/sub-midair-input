@@ -56,11 +56,11 @@ export function clearFlash() { flash = null; }
 export function drawOverlay(octx, lm, overlay, now) {
   const W = overlay.width, H = overlay.height;
   octx.fillStyle = "rgba(154,163,178,0.85)";
-  for (const p of lm) { octx.beginPath(); octx.arc(p.x * W, p.y * H, 3, 0, Math.PI * 2); octx.fill(); }
+  for (const p of lm) { octx.beginPath(); octx.arc(p.x * W, p.y * H, 6, 0, Math.PI * 2); octx.fill(); }
   if (flash && now < flash.until) {
     octx.fillStyle = "rgba(0,0,0,0.5)"; octx.fillRect(0, 0, W, H);
     octx.save(); octx.scale(-1, 1);   // overlay は CSS ミラーなので文字だけ反転して戻す
-    octx.fillStyle = "#fff"; octx.font = "bold 22px system-ui"; octx.textAlign = "center";
+    octx.fillStyle = "#fff"; octx.font = "bold 44px system-ui"; octx.textAlign = "center";
     octx.fillText(flash.text, -W / 2, H / 2);
     octx.restore();
   }
@@ -76,20 +76,20 @@ export function drawPadCursor(x, y, mode) {
   g.clearRect(0, 0, c.width, c.height);
   if (mode === "draw") {   // ペン書き: 赤い点
     g.fillStyle = "#ff5b5b";
-    g.beginPath(); g.arc(x, y, 7, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(x, y, 14, 0, Math.PI * 2); g.fill();
     g.fillStyle = "rgba(255,255,255,0.9)";
-    g.beginPath(); g.arc(x, y, 1.8, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(x, y, 3.6, 0, Math.PI * 2); g.fill();
     return;
   }
   if (POINTER_STYLE === "crosshair") {
-    g.strokeStyle = "rgba(0,0,0,0.85)"; g.lineWidth = 1;
-    const s = 7;
+    g.strokeStyle = "rgba(0,0,0,0.85)"; g.lineWidth = 2;
+    const s = 14;
     g.beginPath();
     g.moveTo(x - s, y); g.lineTo(x + s, y);
     g.moveTo(x, y - s); g.lineTo(x, y + s);
     g.stroke();
   } else {   // レーザーポインタ (赤い発光ドット)
-    const r = 9;
+    const r = 18;
     const grad = g.createRadialGradient(x, y, 0, x, y, r);
     grad.addColorStop(0.0, "rgba(255,90,70,0.85)");
     grad.addColorStop(0.45, "rgba(235,30,30,0.55)");
@@ -116,11 +116,12 @@ export const fingerUp = (lm, tip, pip) => dist(lm[tip], lm[LM.WRIST]) > dist(lm[
 
 // 手が枠内に収まっているか。一部でも画角外(palm 見切れ等)なら false。
 // 見切れた手はランドマーク位置が外挿されて不安定になり、向き判定や言語切替を誤爆させるため無効化する。
-const VISIBLE_MARGIN = 0.05;   // このぶんのはみ出しは許容 (端ノイズ用)
+const VISIBLE_MARGIN = 0.05;         // 上/左右のはみ出し許容 (端ノイズ用)
+const VISIBLE_MARGIN_BOTTOM = 0.25;  // 下側は腕が画角下から入ってくるため広めに許容
 function handFullyVisible(lm) {
   for (const p of lm) {
     if (p.x < -VISIBLE_MARGIN || p.x > 1 + VISIBLE_MARGIN ||
-        p.y < -VISIBLE_MARGIN || p.y > 1 + VISIBLE_MARGIN) return false;
+        p.y < -VISIBLE_MARGIN || p.y > 1 + VISIBLE_MARGIN_BOTTOM) return false;
   }
   return true;
 }
@@ -137,7 +138,7 @@ function initHandwriting() {
   canvas = $("pad");
   padCtx = canvas.getContext("2d");
   clearPad();
-  padCtx.lineWidth = 10; padCtx.lineCap = "round"; padCtx.lineJoin = "round"; padCtx.strokeStyle = "#000";
+  padCtx.lineWidth = 20; padCtx.lineCap = "round"; padCtx.lineJoin = "round"; padCtx.strokeStyle = "#000";
   let drawing = false;
   const posOf = (e) => {
     const r = canvas.getBoundingClientRect();
