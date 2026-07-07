@@ -517,9 +517,13 @@ function applyViewLayout() {
   if (testPanel) testPanel.style.display = testMode ? "" : "none";
   if (grid) grid.style.display = testMode ? "none" : "";
   if (btn) btn.textContent = testMode ? t("btn.toNormal") : t("btn.toTest");
-  // 入力ブロック(入力結果欄)を テスト領域 / 上部ブロック へ移動する
+  // 入力ブロック(入力結果欄)を、通常時はモード切替の直下、テスト時はお題の直下へ移動する
   const block = $("inputBlock"), slot = $("testInputSlot"), proto = document.querySelector(".jp-proto");
-  if (block && slot && proto) (testMode ? slot : proto).appendChild(block);
+  const status = $("jpFlickStatus");
+  if (block && slot && proto) {
+    if (testMode) slot.appendChild(block);
+    else proto.insertBefore(block, status || proto.firstChild);
+  }
   // 運指/しきい値の設定はテストページでは隠す (純粋に言語入力だけにする)
   const jpCfg = $("jpFingerConfig"), enRef = $("enRef");
   if (jpCfg) jpCfg.style.display = (!testMode && inputMode === "japanese") ? "" : "none";

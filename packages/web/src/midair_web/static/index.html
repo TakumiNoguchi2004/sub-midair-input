@@ -102,6 +102,14 @@
   .jp-cfg-thval { flex:0 0 46px; text-align:right; color:var(--fg); font-variant-numeric:tabular-nums; }
   .jp-cfg-row { display:flex; align-items:center; gap:6px; font-size:11px; margin:3px 0; flex-wrap:wrap; }
   .jp-cfg-rowlabel { flex:0 0 auto; min-width:34px; margin-right:4px; color:var(--fg); font-weight:700; }
+  .jp-cfg-table { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:4px 6px; margin-top:6px; }
+  .jp-cfg-legend { margin-top:4px; color:#d6dbe6; font-size:12px; line-height:1.4; }
+  .jp-cfg-legend b { color:#fff; font-weight:800; }
+  .jp-cfg-pair { min-width:0; display:flex; align-items:baseline; justify-content:flex-start; gap:7px;
+    padding:7px 9px; border:1px solid #3b4250; border-radius:6px; background:rgba(26,29,36,0.85);
+    font-size:13px; line-height:1.25; }
+  .jp-cfg-pair b { color:#fff; font-weight:800; white-space:nowrap; }
+  .jp-cfg-pair span { color:#d6dbe6; font-weight:800; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .jp-cfg-cb { display:inline-flex; align-items:center; gap:2px; color:var(--muted); cursor:pointer; }
   .jp-cfg-disp, .jp-cfg-edit { display:inline-flex; gap:7px; flex-wrap:wrap; align-items:center; }
   .jp-cfg-on { color:#5bff8c; font-weight:700; }
@@ -121,6 +129,7 @@
   .test-result.ng { color:#ff5b5b; }
   .test-stats { display:flex; gap:14px; flex-wrap:wrap; margin-top:8px; font-size:13px; color:var(--muted); }
   .test-stats b { color:var(--fg); font-size:15px; font-variant-numeric:tabular-nums; }
+  @media (max-width: 720px) { .jp-cfg-table { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
 </style>
 </head>
 <body>
@@ -200,7 +209,7 @@
         <button id="modeEnglish" onclick="setInputMode('english')" data-i18n="mode.english">英語</button>
         <button id="modeEmoji" class="active" onclick="setInputMode('emoji')" data-i18n="mode.emoji">絵文字</button>
       </div>
-      <div id="jpFlickStatus" class="jp-proto-status">絵文字: テキスト / 手書きで検索し、下の候補をクリックで入力。カメラは 3本ピンチで描く / ピースで検索 / 指差しでクリア。</div>
+      <div id="jpFlickStatus" class="jp-proto-status">絵文字: テキスト / 手書きで検索し、下の候補をクリックで入力。カメラは 人差し指のみ=描画 / グーパーグー=検索 / グーフリップ=クリア。</div>
       <div id="jpFingerConfig" class="jp-cfg" style="display:none"></div>
       <div id="enRef" class="jp-cfg" style="display:none"></div>
       <div class="mode-row" style="margin-top:8px"><span data-i18n="label.langMotion">言語切替モーション</span>
