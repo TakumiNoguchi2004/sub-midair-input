@@ -29,38 +29,36 @@ function thumbExtended(lm, threshold = 0.6) {
   return dist(lm[LM.THUMB_TIP], lm[LM.MIDDLE_MCP]) / scale >= threshold;
 }
 
-// roll: 手のひら向き。基準=手のひら下(0°), 手のひらカメラ向き=+90°/-90°, 手のひら上≈±90°
-// 手首→人差し付け根 と 手首→小指付け根 の2D外積から符号付きsin値→度変換。
-function computeRoll(lm, handedLabel) {
-  const w = lm[LM.WRIST], i = lm[LM.INDEX_MCP], p = lm[LM.PINKY_MCP];
-  const v1x = i.x - w.x, v1y = i.y - w.y;
-  const v2x = p.x - w.x, v2y = p.y - w.y;
-  const cross = v1x * v2y - v1y * v2x;
-  const norm = Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y) + 1e-9;
-  let s = -cross / norm;
-  if (handedLabel === "Left") s = -s;
-  return Math.asin(Math.max(-1, Math.min(1, s))) * RAD2DEG;
+// ボディ固定フレームをカメラ座標で計算
+// fz: 手首→中指MCP (指方向)
+// fx: 小指→人差し指 方向をfzに直交化 (左手は符号反転)
+// fy: fz × fx (手のひら法線)
+export function computeBodyFrame(lm, handedLabel) {
+  const w = lm[LM.WRIST], m = lm[LM.MIDDLE_MCP];
+  const ip = lm[LM.INDEX_MCP], pp = lm[LM.PINKY_MCP];
+  const norm3 = v => { const l = Math.hypot(...v) || 1e-9; return v.map(x => x / l); };
+  const dot3  = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+  const cross3 = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+  const fz = norm3([m.x-w.x, m.y-w.y, (m.z??0)-(w.z??0)]);
+  let fx = [ip.x-pp.x, ip.y-pp.y, (ip.z??0)-(pp.z??0)];
+  if (handedLabel === "Left") fx = fx.map(x => -x);
+  const d = dot3(fx, fz);
+  fx = norm3([fx[0]-d*fz[0], fx[1]-d*fz[1], fx[2]-d*fz[2]]);
+  const fy = norm3(cross3(fz, fx));
+  return { fx, fy, fz };
 }
 
-// pitch: 手首→中指付け根ベクトルの仰角 (上向き=正)
-// 画像y軸(下正)を反転してワールドy+(上)に揃える。
-function computePitch(lm) {
-  const w = lm[LM.WRIST], m = lm[LM.MIDDLE_MCP];
-  const dy = -(m.y - w.y);
-  const dx = m.x - w.x;
-  const len = Math.hypot(dx, dy);
-  if (len < 0.001) return 0;
-  return Math.asin(Math.max(-1, Math.min(1, dy / len))) * RAD2DEG;
-}
-
-// yaw: 手首→中指付け根ベクトルの左右偏向 (右向き=正)
-function computeYaw(lm) {
-  const w = lm[LM.WRIST], m = lm[LM.MIDDLE_MCP];
-  const dx = m.x - w.x;
-  const dy = -(m.y - w.y);
-  const len = Math.hypot(dx, dy);
-  if (len < 0.001) return 0;
-  return Math.asin(Math.max(-1, Math.min(1, dx / len))) * RAD2DEG;
+// 基準姿勢からの相対回転を ZXY オイラー角で抽出
+// 基準姿勢: 指上向き(fz=[0,-1,0]), 手のひらカメラ向き(fy=[0,0,+1]), fx=[+1,0,0]
+// R_ref^T の作用: v_rel = [v[0], v[2], -v[1]]
+// → 基準姿勢で roll=pitch=yaw=0、特異点は基準から約90°離れた特殊姿勢のみ
+function computeOrientationFromFrame({ fx, fy, fz }) {
+  const norm  = deg => { let d = deg % 360; if (d > 180) d -= 360; if (d < -180) d += 360; return d; };
+  const clamp = x => Math.max(-1, Math.min(1, x));
+  const pitch = Math.asin(clamp(fy[1])) * RAD2DEG;
+  const roll  = norm(Math.atan2(-fy[0], fy[2]) * RAD2DEG);
+  const yaw   = norm(Math.atan2(-fx[1], -fz[1]) * RAD2DEG);
+  return { roll, pitch, yaw };
 }
 
 // 画角端のリマップ: 端(EDGE_MARGIN)を除いた内側を [0,1] にリマップしてクランプ
@@ -114,10 +112,9 @@ export class HandState {
       y: remapEdge(lm[LM.INDEX_TIP].y) * canvasHeight,
     };
 
-    // Layer 1 + 2: 姿勢角 (degrees) と 90°量子化
-    const roll  = computeRoll(lm, handedLabel);
-    const pitch = computePitch(lm);
-    const yaw   = computeYaw(lm);
+    // Layer 1 + 2: ボディ固定フレームとそこから抽出したオイラー角
+    this.bodyFrame = computeBodyFrame(lm, handedLabel);
+    const { roll, pitch, yaw } = computeOrientationFromFrame(this.bodyFrame);
     this.orientation = {
       roll,  pitch,  yaw,
       rollQ:  quantize90(roll),
@@ -134,6 +131,13 @@ export class HandState {
   /** ランドマーク2点間の2D距離 */
   dist(aIdx, bIdx) { return dist(this.lm[aIdx], this.lm[bIdx]); }
 
-  // roll を sin 空間に戻す (既存 ORIENT_DEADZONE との比較に使う)
-  sinRoll() { return Math.sin(this.orientation.roll * DEG2RAD); }
+  // palm/back判定用: 手のひら法線fyのカメラz成分で実際の向きを検出
+  // -fy[2] > 0 → palmがカメラ向き("palm"), < 0 → 背面向き("back")
+  // pitch < 30° (手が倒れている) なら不感帯にして誤検知を防ぐ
+  sinRoll() {
+    const { pitch } = this.orientation;
+    // 基準姿勢(pitch=0)付近でフル有効、大きく傾くと不感帯 (|pitch|>60° でゼロ)
+    const gate = Math.max(0, Math.min(1, 1 - Math.abs(pitch) / 60));
+    return -this.bodyFrame.fy[2] * gate;
+  }
 }
