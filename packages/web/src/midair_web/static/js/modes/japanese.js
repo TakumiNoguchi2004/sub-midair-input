@@ -1,9 +1,13 @@
 // 日本語入力 (新方式):
-//   グー / パー = レスト (入力待ち)
+//   行未ロック時: グー / パー = レスト (入力待ち)
 //   中間状態 (T/I/M のいずれかを伸展) + orientation(0°/90°) → 行選択
-//   フリック → 即自動確定
-//   グー → あ段 (フリックなし) 確定
-//   CommonGestures delete (グーフリップ) → 1文字削除
+//   フリック(手を動かす) → 方向を即自動確定
+//   グー(握る) → あ段を即確定 (濁点サイクルへは繋がらないシンプルな確定)
+//   フリップ(指を伸ばしたまま中央で手首をひねる) → あ段を確定 (濁点があれば素の文字を経由せず濁点形から開始)
+//   確定直後、同じポーズのままもう一度フリップ → 濁点/半濁点/元 をさらにサイクル
+//   フリップ中(ロール角がニュートラルから外れている間)は姿勢判定(グー/パー/行)を凍結し、
+//   指の見え方が乱れても誤爆しないようにする
+//   CommonGestures delete (グーを握ってひねる) → 1文字削除 / 全削除
 import { LM } from "../config.js";
 import {
   dist, fingerUp, $, clearPadCursor, drawPadCursor, setGesture, setCameraState, applyLangCamState,
@@ -43,7 +47,13 @@ for (const cyc of DAKUTEN_CYCLES) {
   for (let i = 0; i < arr.length; i++) DAKUTEN_NEXT[arr[i]] = arr[(i + 1) % arr.length];
 }
 
-// フリップ修飾用: 濁音・半濁音のみ (小文字変形は含めない)
+// フリップ修飾用マップ (サイクル順: 小文字 → 濁点 → 半濁点 → なし)
+const KOGAKI_MAP = Object.fromEntries([
+  ["あ","ぁ"],["い","ぃ"],["う","ぅ"],["え","ぇ"],["お","ぉ"],
+  ["つ","っ"],
+  ["や","ゃ"],["ゆ","ゅ"],["よ","ょ"],
+  ["わ","ゎ"],
+]);
 const DAKUTEN_MAP = Object.fromEntries([
   ["か","が"],["き","ぎ"],["く","ぐ"],["け","げ"],["こ","ご"],
   ["さ","ざ"],["し","じ"],["す","ず"],["せ","ぜ"],["そ","ぞ"],
@@ -106,6 +116,24 @@ function flickDir(dx, dy) {
   return dy < 0 ? 2 : 4;
 }
 
+// ヒステリシス付き方向判定: 隣接セクター間の切り替えに HYST_RATIO の余裕を要求する
+const HYST_RATIO = 1.5;
+function flickDirHyst(dx, dy, prevDir) {
+  if (Math.hypot(dx, dy) < FLICK_DIST) return 0;
+  const rawHoriz = Math.abs(dx) >= Math.abs(dy);
+  const rawDir   = rawHoriz ? (dx < 0 ? 1 : 3) : (dy < 0 ? 2 : 4);
+  if (prevDir === 0) return rawDir;
+  const prevHoriz = prevDir === 1 || prevDir === 3;
+  if (prevHoriz !== rawHoriz) {
+    // 水平↔垂直の切り替え: 優勢比が HYST_RATIO を超えるまで前の方向を維持
+    const ratio = rawHoriz
+      ? Math.abs(dx) / (Math.abs(dy) || 1e-9)
+      : Math.abs(dy) / (Math.abs(dx) || 1e-9);
+    if (ratio < HYST_RATIO) return prevDir;
+  }
+  return rawDir;
+}
+
 // --- 出力ヘルパ ---
 function jpAppend(kana) { const o = $("jpFlickOutput"); if (o) o.value += kana; }
 function jpStatus(text) { const s = $("jpFlickStatus"); if (s) s.textContent = text; }
@@ -132,18 +160,22 @@ let rowPending  = null;   // { row, since } 行選択のデバウンス候補
 let flickStart  = null;   // フリック基準座標 (最後のパー位置 or ロック時位置)
 let flickArmed  = true;   // true=フリック受付中, false=検知済み・基準に戻るまで待機
 let lastOpenPos = null;   // 最後に isOpen だったときの palmPoint
+let leftMargin  = false;  // 現在の確定サイクル中に一度でも FLICK_DIST 外に出たか (中央フリップ確定は移動しないため、これが true にならない限り再アームしない)
+let centerBaseRoll = 0;   // あ段確定用フリップのロール基準 (中央保持中に追従)
+let centerFlipping = false; // あ段確定用フリップの検出中フラグ
+let _lastDir    = 0;      // 直前に確定したフリック方向 (マージン外連続入力のヒステリシス用)
 
 // --- JP専用削除ステートマシン ---
 const DEL_QUICK_MS     = 1000;  // これ以内に戻したら1文字削除
 const DEL_HOLD_MS      = 1000;  // これ以上保持したら全削除
-const DEL_ROLL_FLIP    = 60;    // グー握った時点から roll がこれ以上変化したらフリップ (deg)
+const DEL_ROLL_FLIP    = 90;    // roll がこれ以上変化したらフリップ (deg)
 const DEL_ROLL_NEUTRAL = 30;    // この範囲内に戻ったら中立 (deg)
 let _delCanFire   = false;
 let _delFlipAt    = -1;
-let _delBaseRoll  = 0;          // グー握った瞬間の roll ベースライン
 
-function rollDelta(roll) {
-  let d = roll - _delBaseRoll;
+// 2つの角度(deg)の差を -180..180 に正規化して返す
+function angleDelta(a, b) {
+  let d = a - b;
   if (d > 180) d -= 360;
   if (d < -180) d += 360;
   return d;
@@ -151,23 +183,22 @@ function rollDelta(roll) {
 
 function updateDelete(hand, now) {
   const roll = hand.orientation.roll;
-  const delta = rollDelta(roll);
+  const isNeutral = Math.abs(roll) < DEL_ROLL_NEUTRAL;
+  const isFlipped = Math.abs(roll) > DEL_ROLL_FLIP;
   const ret = (action, extra = {}) =>
-    ({ action, phase: "idle", progress: 0, flippedMs: 0, isFlipped: Math.abs(delta) > DEL_ROLL_FLIP, ...extra });
+    ({ action, phase: "idle", progress: 0, flippedMs: 0,
+       isFlipped: _delCanFire && isFlipped, ...extra });
 
   if (!hand.isFist) {
     _delCanFire = false; _delFlipAt = -1;
     return ret(null, { phase: "idle" });
   }
 
-  // グーを握った直後にベースラインを記録
+  // roll=0°(基準姿勢)付近でのみ有効化
   if (!_delCanFire) {
-    _delBaseRoll = roll;
+    if (!isNeutral) return ret(null, { phase: "idle" });
     _delCanFire = true;
   }
-
-  const isFlipped = Math.abs(delta) > DEL_ROLL_FLIP;
-  const isNeutral = Math.abs(delta) < DEL_ROLL_NEUTRAL;
 
   if (isNeutral) {
     if (_delFlipAt > 0) {
@@ -192,14 +223,14 @@ function updateDelete(hand, now) {
     return ret(null, { phase: "flipped", progress, flippedMs: held, isFlipped: true });
   }
 
-  return ret(null, { phase: _delCanFire ? "armed" : "idle" });
+  return ret(null, { phase: "armed" });
 }
 
 // --- 修飾ステートマシン (フリック後の濁点/半濁点サイクル) ---
 const MOD_ROLL_FLIP    = 60;
 const MOD_ROLL_NEUTRAL = 30;
 let _modOrigChar   = null;   // フリック直後の元の文字
-let _modState      = 0;      // 0=なし, 1=濁点, 2=半濁点
+let _modState      = 0;      // 0=なし, 1=小文字, 2=濁点, 3=半濁点
 let _modBaseRoll   = 0;
 let _modIsFlipping = false;
 
@@ -207,11 +238,24 @@ function cycleModifier() {
   if (!_modOrigChar) return;
   const o = $("jpFlickOutput");
   if (!o || !o.value) return;
-  if      (_modState === 0 && DAKUTEN_MAP[_modOrigChar])    _modState = 1;
-  else if (_modState === 1 && HANDAKUTEN_MAP[_modOrigChar]) _modState = 2;
-  else _modState = 0;
+  if (_modState === 0) {
+    if      (KOGAKI_MAP[_modOrigChar])     _modState = 1;
+    else if (DAKUTEN_MAP[_modOrigChar])    _modState = 2;
+    else if (HANDAKUTEN_MAP[_modOrigChar]) _modState = 3;
+    else return;
+  } else if (_modState === 1) {
+    if      (DAKUTEN_MAP[_modOrigChar])    _modState = 2;
+    else if (HANDAKUTEN_MAP[_modOrigChar]) _modState = 3;
+    else _modState = 0;
+  } else if (_modState === 2) {
+    if (HANDAKUTEN_MAP[_modOrigChar]) _modState = 3;
+    else _modState = 0;
+  } else {
+    _modState = 0;
+  }
   const newChar = _modState === 0 ? _modOrigChar
-                : _modState === 1 ? DAKUTEN_MAP[_modOrigChar]
+                : _modState === 1 ? KOGAKI_MAP[_modOrigChar]
+                : _modState === 2 ? DAKUTEN_MAP[_modOrigChar]
                 : HANDAKUTEN_MAP[_modOrigChar];
   o.value = o.value.slice(0, -1) + newChar;
 }
@@ -234,9 +278,14 @@ function resetModState() {
   _modOrigChar = null; _modState = 0; _modBaseRoll = 0; _modIsFlipping = false;
 }
 
-function resetFull() {
+function resetRowState() {
   lockedRow = null; rowPending = null; flickStart = null; flickArmed = true; lastOpenPos = null;
-  _delCanFire = false; _delFlipAt = -1; _delBaseRoll = 0;
+  leftMargin = false; centerFlipping = false; _lastDir = 0;
+  _delCanFire = false; _delFlipAt = -1;
+}
+
+function resetFull() {
+  resetRowState();
   resetModState();
 }
 
@@ -246,33 +295,49 @@ function updateJapanese(hand, now) {
 
   // ---- ロック中 ----
   if (lockedRow) {
-    // パー → キャンセル
-    if (hand.isOpen) { resetFull(); jpStatus("キャンセル"); return; }
+    // フリップ中(手首を大きくひねっている間)は指の見え方が乱れて別の姿勢(グー/パー/別行)に
+    // 誤検出されやすいため、その間は姿勢による判定を全て凍結し、ロック中の行のまま扱う
+    // (は行などフリップの回転量が大きい行で特に指が隠れやすいための安定化)
+    const rollBase = flickArmed ? centerBaseRoll : _modBaseRoll;
+    const midFlip  = Math.abs(angleDelta(hand.orientation.roll, rollBase)) > MOD_ROLL_NEUTRAL;
 
-    // グー → あ段確定 + ロック解除
-    if (hand.isFist) {
-      const r = lockedRow; resetFull();
-      const kana = ROWS[r][0]; jpAppend(kana);
-      jpStatus(`${r}行 中央 → ${kana}`);
-      return;
+    if (!midFlip) {
+      // パー → キャンセル
+      if (hand.isOpen) { resetFull(); jpStatus("キャンセル"); return; }
+
+      // グー → あ段を確定してロック解除 (即確定。削除ジェスチャーとの衝突を避けるため
+      // 濁点サイクルへは繋げない。濁点まで続けたい場合はフリップ方式を使う)
+      // ただし、このロック中に既にフリック/フリップで何か確定済み(flickArmed=false)の場合は
+      // 「あ段」を二重に追加せず、単に終了(ロック解除)だけ行う
+      if (hand.isFist) {
+        if (flickArmed) {
+          const kana = ROWS[lockedRow][0];
+          jpAppend(kana);
+          jpStatus(`${lockedRow}行 中央 → ${kana}`);
+        } else {
+          jpStatus(`${lockedRow}行 終了`);
+        }
+        resetRowState();
+        return;
+      }
+
+      // ポーズが変わった → HOLD_MS で新しい行へ切り替え (レスト不要)
+      // flickStart はパーからポーズへの遷移時のみ更新するためここでは変えない
+      if (row !== lockedRow) {
+        if (!row) { rowPending = null; jpStatus(`${lockedRow}行 (未割り当て)`); return; }
+        if (!rowPending || rowPending.row !== row) {
+          rowPending = { row, since: now };
+        } else if (now - rowPending.since >= HOLD_MS) {
+          lockedRow  = row;
+          rowPending = null;
+          flickArmed = false;   // 基準点へ戻るまでフリック判定を停止
+          jpStatus(`${row}行: マージンに戻ってからフリック / グー or フリップであ段`);
+        } else { jpStatus(`${row}行…`); }
+        return;
+      }
     }
 
-    // ポーズが変わった → HOLD_MS で新しい行へ切り替え (レスト不要)
-    // flickStart はパーからポーズへの遷移時のみ更新するためここでは変えない
-    if (row !== lockedRow) {
-      if (!row) { rowPending = null; jpStatus(`${lockedRow}行 (未割り当て)`); return; }
-      if (!rowPending || rowPending.row !== row) {
-        rowPending = { row, since: now };
-      } else if (now - rowPending.since >= HOLD_MS) {
-        lockedRow  = row;
-        rowPending = null;
-        flickArmed = false;   // 基準点へ戻るまでフリック判定を停止
-        jpStatus(`${row}行: マージンに戻ってからフリック / グーであ段`);
-      } else { jpStatus(`${row}行…`); }
-      return;
-    }
-
-    // 同じ行: フリック判定
+    // 同じ行: フリック / フリップ判定
     rowPending = null;
     if (!flickStart) flickStart = hand.palmPoint;
 
@@ -280,27 +345,69 @@ function updateJapanese(hand, now) {
     const dx = cur.x - flickStart.x, dy = cur.y - flickStart.y;
     const d   = Math.hypot(dx, dy);
     const dir = flickDir(dx, dy);
+    if (d >= FLICK_DIST) leftMargin = true;
 
     if (!flickArmed) {
-      updateModifier(hand.orientation.roll);
-      if (d < FLICK_DIST) { flickArmed = true; resetModState(); }
-      const modLabel = _modState === 1 ? " [濁]" : _modState === 2 ? " [半濁]" : "";
+      // マージン外: ヒステリシス付きで方向変化を検出し、境界を越えたら追加入力
+      if (d >= FLICK_DIST) {
+        const hystDir = flickDirHyst(dx, dy, _lastDir);
+        if (hystDir !== 0 && hystDir !== _lastDir) {
+          const kana = ROWS[lockedRow][hystDir];
+          jpAppend(kana);
+          jpStatus(`${lockedRow}行 ${DIR_LABELS[hystDir]} → ${kana}`);
+          _modOrigChar = kana; _modState = 0;
+          _modBaseRoll = hand.orientation.roll; _modIsFlipping = false;
+          _lastDir = hystDir;
+        }
+      }
+      // グー(削除ジェスチャー)とは手の形で区別する: 指を伸ばしたままの捻りのみ濁点サイクルとして扱う
+      if (!hand.isFist) updateModifier(hand.orientation.roll);
+      // 中央フリップでの確定は手を動かさないため、一度 FLICK_DIST の外に出て
+      // 戻ってくるまでは再アームしない (でないと濁点フリップの前に即再アームしてしまう)
+      if (leftMargin && d < FLICK_DIST) {
+        flickArmed = true; leftMargin = false; resetModState(); _lastDir = 0;
+        centerBaseRoll = hand.orientation.roll; centerFlipping = false;
+      }
+      const modLabel = _modState === 1 ? " [小]" : _modState === 2 ? " [濁]" : _modState === 3 ? " [半濁]" : "";
       jpStatus(`${lockedRow}行: 基準に戻して次フリック${modLabel} / フリップで濁点`);
       return;
     }
 
-    // フリック受付中: 閾値を超えたら即確定
+    // フリック受付中: 動かせば方向を即確定
     if (dir !== 0) {
       const kana = ROWS[lockedRow][dir];
       jpAppend(kana);
       jpStatus(`${lockedRow}行 ${DIR_LABELS[dir]} → ${kana}`);
       _modOrigChar = kana; _modState = 0;
       _modBaseRoll = hand.orientation.roll; _modIsFlipping = false;
+      _lastDir = dir;
       flickArmed = false;
       return;
     }
 
-    jpStatus(`${lockedRow}行: フリックで母音 / グーであ段`);
+    // 中央 (未フリック): 手首をひねる(フリップ)であ段を確定
+    {
+      const roll = hand.orientation.roll;
+      const rd = angleDelta(roll, centerBaseRoll);
+      if (!centerFlipping && Math.abs(rd) > MOD_ROLL_FLIP) {
+        centerFlipping = true;
+        const base = ROWS[lockedRow][0];
+        // 濁点があれば素の文字を経由せず、確定と同時に濁点形から始める
+        const hasDaku = !!DAKUTEN_MAP[base];
+        const kana = hasDaku ? DAKUTEN_MAP[base] : base;
+        jpAppend(kana);
+        jpStatus(`${lockedRow}行 中央 → ${kana}`);
+        // 確定に使ったこのフリップ自体を「1回目」として消費済み扱いにし、
+        // 次にニュートラルへ戻ってからのフリップでさらにサイクルさせる
+        _modOrigChar = base; _modState = hasDaku ? 2 : 0;
+        _modBaseRoll = centerBaseRoll; _modIsFlipping = true;
+        flickArmed = false;
+        return;
+      } else if (centerFlipping && Math.abs(rd) < MOD_ROLL_NEUTRAL) {
+        centerFlipping = false; centerBaseRoll = roll;
+      }
+    }
+    jpStatus(`${lockedRow}行: フリックで母音 / グー or フリップであ段`);
     return;
   }
 
@@ -319,8 +426,10 @@ function updateJapanese(hand, now) {
   } else if (now - rowPending.since >= HOLD_MS) {
     lockedRow  = row;
     flickStart = lastOpenPos ?? hand.palmPoint;
-    rowPending = null; flickArmed = true;
-    jpStatus(`${row}行: フリックで母音 / グーであ段`);
+    rowPending = null; flickArmed = true; leftMargin = false;
+    resetModState();
+    centerBaseRoll = hand.orientation.roll; centerFlipping = false;
+    jpStatus(`${row}行: フリックで母音 / グー or フリップであ段`);
   } else { jpStatus(`${row}行…`); }
 }
 
@@ -329,9 +438,10 @@ export default {
   label: "日本語",
   reset() { resetFull(); const dbg = $("orientDebug"); if (dbg) dbg.style.display = "none"; },
   onFrame(ctx) {
-    const { cursor, now, langInfo, orient, hand, gesture, octx } = ctx;
+    const { now, langInfo, orient, hand, gesture, octx } = ctx;
     // JP専用削除: フリップ即戻し→1文字, 保持→全削除
-    const del  = updateDelete(hand, now);
+    // (行ロック中は centerBaseRoll = このセッションの真のニュートラル角度をヒントとして渡す)
+    const del = updateDelete(hand, now);
     if (del.action === "delete1")        { jpFlickBackspace(); jpStatus("1文字削除"); }
     else if (del.action === "deleteAll") { jpFlickClear(); }
     if (hand.isFist) {
@@ -351,7 +461,8 @@ export default {
         jpStatus(`roll:${roll.toFixed(0)}° グー`);
       }
     }
-    drawPadCursor(cursor.x, cursor.y, "point");
+    { const _pc = $("padCursor");
+      drawPadCursor(hand.palmPoint.x * (_pc?.width ?? 1), hand.palmPoint.y * (_pc?.height ?? 1), "point"); }
     // デバッグ: 手に追従するローカル座標軸をoverlayに描画
     if (octx) {
       const lm = hand.lm;
@@ -464,8 +575,8 @@ export default {
 
         // 修飾状態バッジ (゛/゜) - フリック後のモディファイア状態
         if (_modState > 0) {
-          const mark  = _modState === 1 ? "゛" : "゜";
-          const color = _modState === 1 ? "#5bff8c" : "#5b8cff";
+          const mark  = _modState === 2 ? "゛" : "゜";
+          const color = _modState === 2 ? "#5bff8c" : "#5b8cff";
           g.font = "bold 36px system-ui";
           g.textAlign = "center";
           g.textBaseline = "bottom";
@@ -481,7 +592,7 @@ export default {
     }
     setGesture(langInfo.fired ? `-> ${langInfo.label}` : "日本語");
     if (!applyLangCamState(langInfo)) {
-      setCameraState("detecting", "日本語入力モード", "指を伸ばして行選択 / フリック or グーで確定");
+      setCameraState("detecting", "日本語入力モード", "指を伸ばして行選択 / フリックで方向 or グー or フリップであ段");
     }
   },
 };

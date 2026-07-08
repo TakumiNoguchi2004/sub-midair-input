@@ -69,8 +69,8 @@ export default {
   label: "英語",
   reset() { engine.reset(); },
   onFrame(ctx) {
-    const { lm, cursor, now, langInfo } = ctx;
-    drawPadCursor(cursor.x, cursor.y, "point");
+    const { lm, hand, now, langInfo } = ctx;
+    drawPadCursor(hand.indexTip.x, hand.indexTip.y, "point");
     const st = engine.update(lm, now);
     if (st.phase === "locked") enStatus(preview(st.entry, st.flickIndex));
     else if (st.phase === "pending") enStatus(t("en.pending", { entry: st.entry }));

@@ -12,7 +12,7 @@
   .view-toggle { white-space:nowrap; font-weight:600; }
   header h1 { margin:0; font-size:18px; }
   header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
-  main { display:grid; grid-template-columns: 360px 1fr; gap:0; min-height: calc(100vh - 64px); }
+  main { display:grid; grid-template-columns: 680px 1fr; gap:0; min-height: calc(100vh - 64px); }
   .inputs { padding:20px; border-right:1px solid var(--line); display:flex; flex-direction:column; gap:24px; }
   .panel h2 { margin:0 0 10px; font-size:14px; color:var(--muted); font-weight:600; }
   input[type=text] { width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--line);
@@ -33,12 +33,12 @@
   .card .label { font-size:12px; margin-top:8px; color:var(--fg); }
   .card .score { font-size:11px; color:var(--muted); margin-top:2px; font-variant-numeric:tabular-nums; }
   .card .hex { font-size:10px; color:var(--muted); margin-top:2px; }
-  .cam-wrap { position:relative; width:320px; height:240px; border-radius:8px; overflow:hidden;
+  .cam-wrap { position:relative; width:640px; height:480px; border-radius:8px; overflow:hidden;
     border:1px solid var(--line); background:#fff; }
   /* カメラ窓に 描画面(#pad) + ランドマーク(#overlay) + ポインタ(#padCursor) を重ねる。
      #overlay は生座標+CSSミラー、#pad/#padCursor は (1-x) 座標(非ミラー)。表示上は同じ位置に来て
      手と軌跡が一致する。#pad の画素は自撮り向きなので検索(toDataURL)にそのまま使える。 */
-  .cam-wrap video, .cam-wrap canvas { position:absolute; inset:0; width:320px; height:240px;
+  .cam-wrap video, .cam-wrap canvas { position:absolute; inset:0; width:640px; height:480px;
     border:none; border-radius:0; }
   .cam-wrap video { visibility:hidden; }
   .cam-wrap #pad { background:#fff; }                                    /* 描画面 (検索ソース) */
@@ -68,6 +68,15 @@
   #jpFlickOutput { width:100%; min-height:76px; resize:vertical; margin-top:8px; padding:8px 10px;
     border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--fg);
     font-size:18px; line-height:1.5; }
+  /* 現在入力中の文字のハイライト表示 (jpFlickOutput の内容を反映する読み取り専用ビュー) */
+  .jp-char-highlight { margin-top:6px; padding:8px 10px; min-height:1.6em; border-radius:8px;
+    border:1px dashed var(--line); background:rgba(91,140,255,0.06); color:var(--fg);
+    font-size:18px; line-height:1.5; white-space:pre-wrap; word-break:break-all; }
+  .jp-char-highlight .jp-cur-char { background:var(--accent); color:#fff; border-radius:3px;
+    padding:0 2px; font-weight:700; }
+  .jp-char-highlight .jp-cursor-bar { display:inline-block; width:2px; height:1em;
+    background:var(--accent); margin-left:1px; vertical-align:-2px; animation:jpblink 1s step-start infinite; }
+  @keyframes jpblink { 50% { opacity:0; } }
   .jp-proto-status { margin-top:8px; color:var(--muted); font-size:12px; line-height:1.5; min-height:36px; }
   .jp-map { margin-top:8px; display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:4px 10px;
     color:var(--muted); font-size:11px; }
@@ -149,9 +158,9 @@
       <h2 data-i18n="panel.camera">Mid-Air 入力 (カメラ)</h2>
       <div class="cam-wrap">
         <video id="cam" playsinline muted></video>
-        <canvas id="pad" width="320" height="240"></canvas>
-        <canvas id="overlay" width="320" height="240"></canvas>
-        <canvas id="padCursor" width="320" height="240"></canvas>
+        <canvas id="pad" width="640" height="480"></canvas>
+        <canvas id="overlay" width="640" height="480"></canvas>
+        <canvas id="padCursor" width="640" height="480"></canvas>
       </div>
       <div id="orientDebug" style="display:none;font-family:monospace;font-size:12px;background:rgba(0,0,0,.6);color:#0f0;padding:4px 8px;border-radius:4px;margin-top:4px;line-height:1.6"></div>
       <div class="row">
@@ -243,6 +252,7 @@
       <div id="inputBlock">
         <div class="mode-row" style="margin-top:10px"><span data-i18n="label.inputResult">入力結果</span></div>
         <textarea id="jpFlickOutput" spellcheck="false" data-i18n-ph="ph.output" placeholder="ここに入力結果が入ります（絵文字は下の候補をクリックで追加）"></textarea>
+        <div id="jpCharHighlight" class="jp-char-highlight" aria-hidden="true"></div>
         <div class="row">
           <button onclick="jpFlickBackspace()" data-i18n="btn.delete">削除</button>
           <button onclick="jpFlickClear()" data-i18n="btn.clear">クリア</button>
