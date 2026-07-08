@@ -78,6 +78,19 @@
     background:var(--accent); margin-left:1px; vertical-align:-2px; animation:jpblink 1s step-start infinite; }
   @keyframes jpblink { 50% { opacity:0; } }
   .jp-proto-status { margin-top:8px; color:var(--muted); font-size:12px; line-height:1.5; min-height:36px; }
+  /* 変換候補パネル */
+  .conv-panel { margin-top:4px; border:1px solid var(--accent); border-radius:8px; overflow:hidden; }
+  .conv-seg-bar { display:flex; align-items:center; flex-wrap:wrap; gap:0; padding:5px 10px;
+    background:rgba(91,140,255,0.07); font-size:16px; }
+  .conv-seg { padding:1px 5px; border-radius:4px; cursor:pointer; transition:background .1s; }
+  .conv-seg:hover { background:rgba(91,140,255,0.15); }
+  .conv-seg.active { background:var(--accent); color:#fff; font-weight:700; }
+  .conv-sep { color:var(--line); padding:0 1px; user-select:none; }
+  .conv-cand-list { display:flex; flex-wrap:wrap; gap:4px; padding:6px 8px; }
+  .conv-cand { padding:3px 10px; border-radius:6px; font-size:15px; cursor:pointer;
+    border:1px solid var(--line); background:var(--panel); color:var(--fg); transition:background .1s; }
+  .conv-cand:hover { background:rgba(91,140,255,0.1); }
+  .conv-cand.active { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:700; }
   .jp-map { margin-top:8px; display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:4px 10px;
     color:var(--muted); font-size:11px; }
   .jp-map b { color:var(--fg); }
@@ -252,6 +265,10 @@
       <div id="inputBlock">
         <div class="mode-row" style="margin-top:10px"><span data-i18n="label.inputResult">入力結果</span></div>
         <textarea id="jpFlickOutput" spellcheck="false" data-i18n-ph="ph.output" placeholder="ここに入力結果が入ります（絵文字は下の候補をクリックで追加）"></textarea>
+        <div id="convPanel" class="conv-panel" style="display:none">
+          <div id="convSegBar" class="conv-seg-bar"></div>
+          <div id="convCandList" class="conv-cand-list"></div>
+        </div>
         <div id="jpCharHighlight" class="jp-char-highlight" aria-hidden="true"></div>
         <div class="row">
           <button onclick="jpFlickBackspace()" data-i18n="btn.delete">削除</button>
