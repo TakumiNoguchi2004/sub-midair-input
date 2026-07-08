@@ -9,6 +9,7 @@ resolution-markers = [
 [manifest]
 members = [
     "emoji-search",
+    "japanese-search",
     "mi-midair-input",
     "midair-app",
     "midair-shared",
@@ -254,6 +255,17 @@ wheels = [
 ]
 
 [[package]]
+name = "japanese-search"
+version = "0.1.0"
+source = { editable = "packages/japanese-search" }
+dependencies = [
+    { name = "midair-shared" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "midair-shared", editable = "packages/shared" }]
+
+[[package]]
 name = "jinja2"
 version = "3.1.6"
 source = { registry = "https://pypi.org/simple" }
@@ -401,6 +413,7 @@ source = { editable = "packages/web" }
 dependencies = [
     { name = "emoji-search" },
     { name = "fastapi" },
+    { name = "japanese-search" },
     { name = "midair-shared" },
     { name = "uvicorn" },
 ]
@@ -409,6 +422,7 @@ dependencies = [
 requires-dist = [
     { name = "emoji-search", editable = "packages/emoji-search" },
     { name = "fastapi" },
+    { name = "japanese-search", editable = "packages/japanese-search" },
     { name = "midair-shared", editable = "packages/shared" },
     { name = "uvicorn" },
 ]

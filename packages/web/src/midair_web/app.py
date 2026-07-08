@@ -25,6 +25,7 @@ from PIL import Image
 from pydantic import BaseModel
 
 from emoji_search.searcher import EmojiSearcher
+from japanese_search.converter import convert as jp_convert
 
 # データルートは MIDAIR_DATA_DIR 優先 (Docker 等)、無ければ repo root/data。
 # .../packages/web/src/midair_web/app.py -> parents[4] = repo root
@@ -150,6 +151,16 @@ def emoji_image(name: str) -> FileResponse:
     if not path.is_file():
         raise HTTPException(status_code=404, detail="not found")
     return FileResponse(path, media_type="image/png")
+
+
+class ConvertQuery(BaseModel):
+    text: str
+
+
+@app.post("/api/convert/kanji")
+def convert_kanji(query: ConvertQuery) -> dict:
+    """ひらがなをかな漢字変換してセグメント候補リストを返す (同期・軽量)。"""
+    return {"segments": jp_convert(query.text)}
 
 
 @app.get("/", response_class=HTMLResponse)

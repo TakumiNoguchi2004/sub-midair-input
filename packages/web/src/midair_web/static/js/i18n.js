@@ -79,8 +79,8 @@ const DICT = {
     en: "Japanese (fold style): fold fingers to pick a row (binary fingering: あ=Thumb, か=Index, さ=Thumb+Index, た=Middle…) → flick → open hand to commit (no flick = -a vowel). Middle+Ring = dakuten/handakuten/small. Adjust fingering/thresholds in the settings panel.",
   },
   "guide.english": {
-    ja: "英語(折り曲げ式): 指を折って行(1-11)を選び→フリックで文字→パーで確定。中+薬=大小トグル / 中+薬+小=削除。下の運指参照表を見ながら操作。",
-    en: "English (fold style): fold fingers to pick a row (1-11) → flick for the letter → open hand to commit. Middle+Ring = case toggle / Middle+Ring+Pinky = delete. See the fingering table below.",
+    ja: "英語: 指を伸ばして行(1-11)を選び→フリックで文字 / グーで中央を小文字確定 / フリップで中央を大文字確定。確定後さらにフリップで大小トグル。グー+ひねりで削除。",
+    en: "English: extend fingers to pick a row (1-11) → flick for a letter / fist to commit the center letter lowercase / flip to commit it uppercase. Flip again after committing to toggle case. Fist + twist to delete.",
   },
   "guide.emoji": {
     ja: "絵文字: テキスト / 手書きで検索し、下の候補をクリックで入力。カメラは 人差し指のみ=描画 / グーパーグー=検索 / グーフリップ=クリア。",
@@ -137,7 +137,7 @@ const DICT = {
   "cam.jpModeDetail": { ja: "同じピンチを50音フリックとして解釈します", en: "Interprets fold + flick as kana input" },
   "cam.foldDetail": { ja: "指を折って行→フリック→パーで確定", en: "Fold to pick a row → flick → open hand to commit" },
   "cam.emojiModeDetail": { ja: "人差し指のみ=描画 / グーパーグー=検索 / グーフリップ=クリア", en: "Index-only draw / fist-open-fist search / fist-flip clear" },
-  "cam.enNotImpl": { ja: "動作は未実装です", en: "Not implemented yet" },
+  "cam.enNotImpl": { ja: "指を伸ばして行を選び、フリックで文字を入力します", en: "Extend fingers to pick a row, then flick to enter a letter" },
 
   // --- ジェスチャ表示 (#gesture) ---
   "gesture.dash": { ja: "—", en: "—" },
