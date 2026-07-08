@@ -120,6 +120,14 @@
   .jp-cfg-title { color:var(--muted); font-size:11px; font-weight:700; margin:10px 0 4px; }
   .jp-cfg-th { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--muted); margin:3px 0; }
   .jp-cfg-thlab { flex:0 0 96px; }
+  /* 運指グリッド表 */
+  .jp-flick-table { margin-top:4px; font-size:13px; width:100%; }
+  .jp-flick-row { display:grid; grid-template-columns: 72px repeat(5, 1fr); gap:1px 3px;
+    padding:3px 2px; border-bottom:1px solid rgba(255,255,255,0.05); }
+  .jp-flick-row > span { text-align:center; }
+  .jp-flick-hdr { color:var(--muted); font-size:11px; font-weight:700; padding-bottom:5px; }
+  .jp-flick-key { text-align:left !important; color:var(--muted); font-size:12px; font-weight:700; }
+  .jp-flick-key b { color:var(--fg); }
   .jp-cfg-th input[type=range] { flex:1; min-width:0; }
   .jp-cfg-thval { flex:0 0 46px; text-align:right; color:var(--fg); font-variant-numeric:tabular-nums; }
   .jp-cfg-row { display:flex; align-items:center; gap:6px; font-size:11px; margin:3px 0; flex-wrap:wrap; }

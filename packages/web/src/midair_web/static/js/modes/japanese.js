@@ -28,8 +28,8 @@ const ROWS = {
   "ま": ["ま", "み", "む", "め", "も"],
   "や": ["や", "（", "ゆ", "）", "よ"],
   "ら": ["ら", "り", "る", "れ", "ろ"],
-  "わ": ["　", "を", "ん", "ー", "〜"],  // 中央=全角スペース / フリップ=変換
-  "、": ["、", "。", "？", "！", "　"],
+  "わ": ["わ", "を", "ん", "ー", "〜"],
+  "、": ["　", "、", "。", "？", "！"],
 };
 const DIR_LABELS = ["中央", "左", "上", "右", "下"];
 
@@ -757,22 +757,33 @@ export function renderJapaneseSettings() {
   root.appendChild(makeSlider("フリック距離", 0.02, 1.00, 0.01, FLICK_DIST, (v) => { FLICK_DIST = v; }));
 
   const mapTitle = document.createElement("div");
-  mapTitle.className = "jp-cfg-title"; mapTitle.textContent = "運指テーブル (T/I/M/P の組み合わせ → 行)";
+  mapTitle.className = "jp-cfg-title"; mapTitle.textContent = "運指表";
   root.appendChild(mapTitle);
 
   const legend = document.createElement("div");
   legend.className = "jp-cfg-legend";
-  legend.innerHTML = "<b>T</b>=親指 / <b>I</b>=人差し指 / <b>M</b>=中指 / <b>R</b>=薬指 / <b>P</b>=小指";
+  legend.innerHTML = "<b>T</b>=親指 <b>I</b>=人差 <b>M</b>=中 <b>P</b>=小指 &nbsp;／&nbsp; 列: ・(中央) ← ↑ → ↓";
   root.appendChild(legend);
 
+  // グリッド表: 指の組み合わせ | グー | ← | ↑ | → | ↓
+  const sk = (k) => (!k ? "—" : (k === " " || k === "　") ? "SP" : k);
   const table = document.createElement("div");
-  table.className = "jp-cfg-table";
+  table.className = "jp-flick-table";
+
+  // ヘッダ行
+  const hdr = document.createElement("div");
+  hdr.className = "jp-flick-row jp-flick-hdr";
+  hdr.innerHTML = `<span>指</span><span>・</span><span>←</span><span>↑</span><span>→</span><span>↓</span>`;
+  table.appendChild(hdr);
+
   for (const r of rowMap) {
-    const fingers = [...r.extend];
-    const item = document.createElement("div");
-    item.className = "jp-cfg-pair";
-    item.innerHTML = `<b>${r.row}行</b><span>${fingers.join(" + ")}</span>`;
-    table.appendChild(item);
+    const kana = ROWS[r.row];
+    const row = document.createElement("div");
+    row.className = "jp-flick-row";
+    row.innerHTML =
+      `<span class="jp-flick-key">${r.extend.join("+")}</span>` +
+      kana.map(k => `<span>${sk(k)}</span>`).join("");
+    table.appendChild(row);
   }
   root.appendChild(table);
 }
