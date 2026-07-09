@@ -166,3 +166,8 @@ def convert_kanji(query: ConvertQuery) -> dict:
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+
+@app.get("/game", response_class=HTMLResponse)
+def game() -> str:
+    return (STATIC_DIR / "game.html").read_text(encoding="utf-8")

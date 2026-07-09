@@ -4,7 +4,7 @@
 // 言語ごとの入力ロジックは modes/<lang>.js に分離し、ここは振り分けだけを担う。
 import {
   MP_ASSET, LM, POINTER_STYLE, DEFAULT_TOP_K,
-  BACK_HOLD_MS, LANG_COOLDOWN_MS, FLIP_WINDOW_MS, ORIENT_DEADZONE, SWITCH_INPUT_COOLDOWN,
+  BACK_HOLD_MS, LANG_COOLDOWN_MS, FLIP_BACK_HOLD_MS, ORIENT_DEADZONE, SWITCH_INPUT_COOLDOWN,
   INPUT_MODES,
 } from "./config.js";
 import { HandState, dist } from "./gestures/hand-state.js";
@@ -302,15 +302,20 @@ export function cycleInputMode() {
 let langMethod = "flip";       // "off" | "holdback" | "flip"
 let orientInverted = false;    // 手のひら/甲の判定が逆な環境向け
 let curOrient = "unknown";     // "palm" | "back" | "unknown"
-let sawPalmAt = -1, backHoldStart = 0, langArmed = true, langLastFire = 0;
-let inputSuppressUntil = 0;   // 言語切替直後はこの時刻まで入力を止める
+let backHoldStart = 0, langArmed = true, langLastFire = 0;
+let _langFlipArmed  = false;        // flip専用: palm 遷移時のみ arm (毎フレームではない)
+let _langBackAt     = -1;           // flip専用: back 保持開始時刻
+let _langPrevOrient = "unknown";    // flip専用: 前フレームの orient (遷移検出用)
+let inputSuppressUntil = 0;         // 言語切替直後はこの時刻まで入力を止める
+let _prevIsFist = false;            // 前フレームの isFist (グー解除検出用)
+let _fistOpenedAt = -1;             // グー→パー遷移の時刻 (言語切替ブレ抑制)
+const FIST_OPEN_SUPPRESS_MS = 500;  // 遷移後この時間は言語切替を無効にする
 
 // hand.sinRoll() は手のひら向きを sin 空間の値で返す (ORIENT_DEADZONE と同単位で比較)
-function updateOrientation(hand, now) {
+function updateOrientation(hand) {
   const m = hand.sinRoll() * (orientInverted ? -1 : 1);
   if (m > ORIENT_DEADZONE) curOrient = "palm";
   else if (m < -ORIENT_DEADZONE) curOrient = "back";   // 不感帯内は直前保持 (チャタリング防止)
-  if (curOrient === "palm") sawPalmAt = now;
   return curOrient;
 }
 
@@ -331,11 +336,21 @@ function handleLanguageSwitch(orient, now) {
       }
     } else { backHoldStart = 0; langArmed = true; }
   } else if (langMethod === "flip") {
+    // 削除ジェスチャと同様のステートマシン:
+    //   palm に入った瞬間だけ arm → back を FLIP_BACK_HOLD_MS 保持で発火
+    //   (毎フレーム arm する旧実装では入力中の一瞬の back で誤検知していた)
     if (orient === "back") {
-      if (langArmed && cooldownOk && sawPalmAt > 0 && (now - sawPalmAt) < FLIP_WINDOW_MS) {
-        fireLangSwitch(now); fired = true; langArmed = false;
+      if (_langBackAt < 0) _langBackAt = now;
+      if (_langFlipArmed && cooldownOk && (now - _langBackAt) >= FLIP_BACK_HOLD_MS) {
+        fireLangSwitch(now); fired = true; _langFlipArmed = false; _langBackAt = -1;
       }
-    } else if (orient === "palm") { langArmed = true; }
+    } else {
+      _langBackAt = -1;
+      // palm に入った瞬間だけ arm (前フレームが palm でなければ遷移)
+      if (orient === "palm" && _langPrevOrient !== "palm") _langFlipArmed = true;
+      // unknown (不感帯): _langFlipArmed 変化なし
+    }
+    _langPrevOrient = orient;
   }
   return { charge, fired, label: currentModeLabel() };
 }
@@ -357,13 +372,13 @@ export function applyLangCamState(langInfo) {
 }
 
 // UI ハンドラ (インライン属性から呼ぶため window に載せる)
-export function onLangMethodChange(v) { langMethod = v; backHoldStart = 0; langArmed = true; sawPalmAt = -1; }
+export function onLangMethodChange(v) { langMethod = v; backHoldStart = 0; langArmed = true; _langFlipArmed = false; _langBackAt = -1; _langPrevOrient = "unknown"; }
 export function setOrientInvert(v) { orientInverted = v; }
 export function setFilterParams(minCutoff, beta) {
   landmarkSmoother.updateParams({ minCutoff, beta });
   landmarkSmoother.reset();
 }
-function resetLangState() { curOrient = "unknown"; sawPalmAt = -1; backHoldStart = 0; langArmed = true; }
+function resetLangState() { curOrient = "unknown"; backHoldStart = 0; langArmed = true; _langFlipArmed = false; _langBackAt = -1; _langPrevOrient = "unknown"; }
 
 // =====================================================================
 //  MediaPipe パイプライン (カメラ -> 手ランドマーク -> モードへ振り分け)
@@ -474,7 +489,7 @@ function handleHands(res) {
   if (!rawLm) {
     setGesture(t("gesture.noHand"));
     setCameraState("nohand", t("cam.noHandLabel"), t("cam.noHandDetail"));
-    commonGestures.reset(); landmarkSmoother.reset(); resetAllModes(); cursor = null; clearPadCursor();
+    commonGestures.reset(); landmarkSmoother.reset(); resetAllModes(); resetLangState(); cursor = null; clearPadCursor(); _prevIsFist = false; _fistOpenedAt = -1;
     prevFrameTime = null;
     return;
   }
@@ -487,7 +502,7 @@ function handleHands(res) {
     drawOverlay(octx, lm, overlay, now);   // 見切れていてもランドマークは表示 (見切れが分かるように)
     setGesture(t("gesture.handClipped"));
     setCameraState("nohand", t("cam.clippedLabel"), t("cam.clippedDetail"));
-    commonGestures.reset(); landmarkSmoother.reset(); resetAllModes(); resetLangState(); cursor = null; clearPadCursor();
+    commonGestures.reset(); landmarkSmoother.reset(); resetAllModes(); resetLangState(); cursor = null; clearPadCursor(); _prevIsFist = false; _fistOpenedAt = -1;
     prevFrameTime = null;
     return;
   }
@@ -498,11 +513,16 @@ function handleHands(res) {
   cursor = hand.cursor;   // 次フレームの EMA 基点として保持
 
   // 🔁 言語切替モーション: 手の向きを全モード共通で先に評価
-  const orient = updateOrientation(hand, now);
+  const orient = updateOrientation(hand);
   updateOrientUI(orient);
-  // 言語切り替え: パーフリップのみ (isOpen ゲートで isFist 中は評価しない)
+  // グー→パー遷移を検出し、姿勢ブレによる誤検知を抑制
+  if (_prevIsFist && !hand.isFist) _fistOpenedAt = now;
+  _prevIsFist = hand.isFist;
+  const fistSuppressed = _fistOpenedAt > 0 && (now - _fistOpenedAt) < FIST_OPEN_SUPPRESS_MS;
+
+  // 言語切り替え: パーフリップのみ (isFist 中・遷移直後は評価しない)
   let langInfo;
-  if (hand.isOpen) {
+  if (hand.isOpen && !fistSuppressed) {
     langInfo = handleLanguageSwitch(orient, now);
   } else {
     resetLangState();
@@ -528,6 +548,7 @@ function handleHands(res) {
   currentMode().onFrame({ lm: hand.lm, now, cursor: hand.cursor, orient, backFacing, langInfo, octx, overlay, hand, gesture });
   drawOverlay(octx, lm, overlay, now);
   refreshCharHighlight();
+
 }
 
 // =====================================================================
