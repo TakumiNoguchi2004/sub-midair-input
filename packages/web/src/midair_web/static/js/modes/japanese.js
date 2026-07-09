@@ -157,6 +157,7 @@ let leftMargin  = false;  // 現在の確定サイクル中に一度でも FLICK
 let centerBaseRoll = 0;   // あ段確定用フリップのロール基準 (中央保持中に追従)
 let centerFlipping = false; // あ段確定用フリップの検出中フラグ
 let _lastDir    = 0;      // 直前に確定したフリック方向 (マージン外連続入力のヒステリシス用)
+let _guuFrozenPos = null; // グー開始時に凍結したカーソル位置 (resetRowState をまたいで保持)
 
 // --- JP専用削除ステートマシン ---
 const DEL_QUICK_MS     = 1000;  // これ以内に戻したら1文字削除
@@ -181,45 +182,22 @@ function _updateConvPanel() {
   if (!_convMode) { panel.style.display = "none"; return; }
   panel.style.display = "";
 
-  // セグメントバー: 全セグメントを並べ、アクティブを強調
-  const segBar = $("convSegBar");
-  if (segBar) {
-    segBar.innerHTML = "";
-    _convSegs.forEach((s, i) => {
-      if (i > 0) {
-        const sep = document.createElement("span");
-        sep.className = "conv-sep"; sep.textContent = "｜";
-        segBar.appendChild(sep);
-      }
-      const el = document.createElement("span");
-      el.className = i === _convSegIdx ? "conv-seg active" : "conv-seg";
-      el.textContent = s.candidates.length ? s.candidates[s.sel] : s.reading;
-      const idx = i;
-      el.addEventListener("click", () => { _convSegIdx = idx; _updateConvPanel(); });
-      segBar.appendChild(el);
-    });
-  }
-
-  // 候補リスト: アクティブセグメントの候補を最大 CONV_CAND_SHOW 件表示
   const candList = $("convCandList");
-  if (candList) {
-    candList.innerHTML = "";
-    const seg = _convSegs[_convSegIdx];
-    if (seg) {
-      seg.candidates.slice(0, CONV_CAND_SHOW).forEach((c, i) => {
-        const btn = document.createElement("button");
-        btn.className = i === seg.sel ? "conv-cand active" : "conv-cand";
-        btn.textContent = c;
-        const selIdx = i;
-        btn.addEventListener("click", () => {
-          seg.sel = selIdx;
-          _convDisplay();
-          _updateConvPanel();
-        });
-        candList.appendChild(btn);
-      });
-    }
-  }
+  if (!candList) return;
+  candList.innerHTML = "";
+  const seg = _convSegs[_convSegIdx];
+  if (!seg) return;
+  seg.candidates.slice(0, CONV_CAND_SHOW).forEach((c, i) => {
+    const btn = document.createElement("button");
+    btn.className = i === seg.sel ? "conv-cand-item active" : "conv-cand-item";
+    btn.textContent = c;
+    btn.addEventListener("click", () => {
+      seg.sel = i;
+      _convDisplay();
+      _updateConvPanel();
+    });
+    candList.appendChild(btn);
+  });
 }
 
 function _convDisplay() {
@@ -402,6 +380,7 @@ function resetRowState() {
 function resetFull() {
   resetRowState();
   resetModState();
+  _guuFrozenPos = null;
   _convMode = false; _convSegs = []; _convSegIdx = 0; _convOrigText = "";
 }
 
@@ -426,6 +405,16 @@ function updateJapanese(hand, now) {
       // ただし、このロック中に既にフリック/フリップで何か確定済み(flickArmed=false)の場合は
       // 「あ段」を二重に追加せず、単に終了(ロック解除)だけ行う
       if (hand.isFist) {
+        if (lockedRow === "、") {
+          // 句読点行グー = スペース兼変換キー (従来IMEのスペースと同じ挙動)
+          if (_convMode) { _convNext(); resetRowState(); return; }
+          if (flickArmed) {
+            const o = $("jpFlickOutput");
+            if (o && o.value) { _startConversion(); }
+            else { jpAppend("　"); jpStatus("全角スペース"); }
+          }
+          resetRowState(); return;
+        }
         if (_convMode) { _convConfirm(); resetRowState(); return; }
         if (flickArmed) {
           const kana = ROWS[lockedRow][0];
@@ -590,12 +579,6 @@ export default {
     if (del.action === "delete1")        { jpFlickBackspace(); jpStatus("1文字削除"); }
     else if (del.action === "deleteAll") { jpFlickClear(); }
     if (hand.isFist) {
-      if (del.isFlipped && octx) {
-        octx.save();
-        octx.fillStyle = "rgba(255,60,60,0.30)";
-        octx.fillRect(0, 0, octx.canvas.width, octx.canvas.height);
-        octx.restore();
-      }
       const roll = hand.orientation.roll;
       if (del.phase === "flipped") {
         const remaining = Math.max(0, Math.round(DEL_QUICK_MS - del.flippedMs));
@@ -606,8 +589,25 @@ export default {
         jpStatus(`roll:${roll.toFixed(0)}° グー`);
       }
     }
+    if (hand.isFist) {
+      if (!_guuFrozenPos) _guuFrozenPos = flickStart ?? lastOpenPos ?? null;
+    } else {
+      _guuFrozenPos = null;
+    }
     { const _pc = $("padCursor");
-      drawPadCursor(hand.palmPoint.x * (_pc?.width ?? 1), hand.palmPoint.y * (_pc?.height ?? 1), "point"); }
+      const _cp = _guuFrozenPos ?? hand.palmPoint;
+      drawPadCursor(_cp.x * (_pc?.width ?? 1), _cp.y * (_pc?.height ?? 1), "point"); }
+    // 赤フラッシュ: drawPadCursor が clearRect してから描くため、必ずその後に重ねる
+    if (hand.isFist && del.isFlipped) {
+      const pc = $("padCursor");
+      if (pc) {
+        const pg = pc.getContext("2d");
+        pg.save();
+        pg.fillStyle = "rgba(255,50,50,0.45)";
+        pg.fillRect(0, 0, pc.width, pc.height);
+        pg.restore();
+      }
+    }
     // デバッグ: 手に追従するローカル座標軸をoverlayに描画
     if (octx) {
       const lm = hand.lm;
@@ -679,14 +679,19 @@ export default {
 
       octx.restore();
     }
+    // updateJapanese が resetRowState() で lockedRow / flickStart を null にする前に保存する
+    const _visRow = lockedRow;
+    const _visRef = flickStart ?? (hand.isFist ? _guuFrozenPos : null);
     updateJapanese(hand, now);
     // flickStart (基準点) の可視化: マージン円 + X字仕切り + 現在位置への線
-    if (lockedRow && flickStart) {
+    // グー中は _guuFrozenPos にフォールバック (resetRowState 後も表示を維持)
+    if ((_visRow || (hand.isFist && _guuFrozenPos)) && _visRef) {
       const el = $("padCursor");
       if (el) {
         const g = el.getContext("2d");
-        const px = flickStart.x * el.width,  py = flickStart.y * el.height;
-        const cx = hand.palmPoint.x * el.width, cy = hand.palmPoint.y * el.height;
+        const px = _visRef.x * el.width,  py = _visRef.y * el.height;
+        const cx = (hand.isFist ? _guuFrozenPos ?? hand.palmPoint : hand.palmPoint).x * el.width,
+              cy = (hand.isFist ? _guuFrozenPos ?? hand.palmPoint : hand.palmPoint).y * el.height;
         const r  = FLICK_DIST * el.width;
         const ready = flickArmed;
         const rimColor = ready ? "#00cc44" : "#ff8800";
@@ -701,7 +706,7 @@ export default {
         // X字仕切り (マージン外まで伸ばす)
         const ext = r * 2;
         g.strokeStyle = rimColor;
-        g.lineWidth = 1;
+        g.lineWidth = 2;
         g.globalAlpha = 0.4;
         g.beginPath();
         g.moveTo(px - ext, py - ext); g.lineTo(px + ext, py + ext);
@@ -732,6 +737,38 @@ export default {
           g.shadowBlur = 0;
         }
 
+        // 各フリック方向の文字をマージン外周に表示 (_visRow が null = グー確定直後はスキップ)
+        if (_visRow) {
+          const kana = ROWS[_visRow];
+          const labelR = r * 1.75;
+          // 現在の手の位置から向き方向を算出してハイライト
+          const adx = hand.palmPoint.x - _visRef.x;
+          const ady = hand.palmPoint.y - _visRef.y;
+          const activeDir = flickDir(adx, ady);
+          const labelPositions = [
+            { dx: 0,       dy: 0,       idx: 0 },
+            { dx: -labelR, dy: 0,       idx: 1 },
+            { dx: 0,       dy: -labelR, idx: 2 },
+            { dx: labelR,  dy: 0,       idx: 3 },
+            { dx: 0,       dy: labelR,  idx: 4 },
+          ];
+          g.font = "bold 26px system-ui";
+          g.textAlign = "center";
+          g.textBaseline = "middle";
+          for (const { dx, dy, idx } of labelPositions) {
+            const k = kana[idx];
+            if (!k || k === "　") continue;
+            const tx = px + dx, ty = py + dy;
+            const isActive = flickArmed && activeDir === idx && idx !== 0;
+            g.lineWidth = 5;
+            g.strokeStyle = "rgba(0,0,0,0.85)";
+            g.strokeText(k, tx, ty);
+            g.fillStyle = isActive ? "#ffd15b"
+              : flickArmed ? "#ffffff" : "rgba(255,255,255,0.55)";
+            g.fillText(k, tx, ty);
+          }
+        }
+
         g.restore();
       }
     }
@@ -753,7 +790,6 @@ export function renderJapaneseSettings() {
   const thTitle = document.createElement("div");
   thTitle.className = "jp-cfg-title"; thTitle.textContent = "検出しきい値";
   root.appendChild(thTitle);
-  root.appendChild(makeSlider("行ロック(ms)", 60, 600, 10, HOLD_MS, (v) => { HOLD_MS = v; }));
   root.appendChild(makeSlider("フリック距離", 0.02, 1.00, 0.01, FLICK_DIST, (v) => { FLICK_DIST = v; }));
 
   const mapTitle = document.createElement("div");
@@ -766,7 +802,7 @@ export function renderJapaneseSettings() {
   root.appendChild(legend);
 
   // グリッド表: 指の組み合わせ | グー | ← | ↑ | → | ↓
-  const sk = (k) => (!k ? "—" : (k === " " || k === "　") ? "SP" : k);
+  const sk = (k) => (!k ? "—" : (k === " " || k === "　") ? "⎵" : k);
   const table = document.createElement("div");
   table.className = "jp-flick-table";
 

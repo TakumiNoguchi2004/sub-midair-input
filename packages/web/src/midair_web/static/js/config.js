@@ -20,10 +20,10 @@ export const POINTER_STYLE = "laser"; // 手書き窓のポインタ: "laser" | 
 export const DEFAULT_TOP_K = 30;      // 検索結果の既定件数
 
 // --- 🔁 言語切替モーションのしきい値 ---
-export const BACK_HOLD_MS = 500;      // 手の甲キープで確定する時間
-export const LANG_COOLDOWN_MS = 400;  // 言語切替の最小デバウンス (連続切替を許容)
-export const FLIP_WINDOW_MS = 1500;   // 手のひら→甲を「裏返し」とみなす猶予
-export const ORIENT_DEADZONE = 0.12;  // 手のひら/甲を分ける不感帯 (sin(挟み角) 基準)
+export const BACK_HOLD_MS = 500;           // 手の甲キープで確定する時間 (holdback モード)
+export const LANG_COOLDOWN_MS = 800;       // 言語切替の最小デバウンス
+export const FLIP_BACK_HOLD_MS = 350;      // flip モード: back をこの時間保持してから切替 (誤検知防止)
+export const ORIENT_DEADZONE = 0.12;       // 手のひら/甲を分ける不感帯 (sin(挟み角) 基準)
 export const SWITCH_INPUT_COOLDOWN = 600;  // 言語切替直後にこの ms は入力を止める (回転→入力の遷移での誤入力防止)
 
 // --- 入力モード一覧 (表示名/ガイドは i18n.js の DICT を参照) ---

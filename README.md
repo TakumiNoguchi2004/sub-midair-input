@@ -1,269 +1,266 @@
-# Mid-Air Flick Input システム
+# Mid-Air Flick Input System
 
-空中フリック入力で **絵文字 / 日本語 / 英語** を入力するシステム。
-各モダリティを独立サブシステムとして**分割開発**し、最終的に 1 つの統合アプリ (`midair`) に**束ねる**。
+A system for entering **emoji / Japanese / English** via mid-air flick gestures.
+Each modality is developed independently as a separate subsystem, then bundled into a single integrated app (`midair`).
 
-> ⚠️ **このブランチ `demo-app` はデモ版です。**
-> 空中フリックの入力メカニクス（**折り曲げ式の日本語・英語入力**、**手の回転による言語切替**、**入力テストページ**、**UI の日本語/英語切替**）を、
-> 実際に手で試して調整できるようにした試作です。運指・しきい値は**画面から可変**にしてあり、安定版ではありません。
-> デモの内容は [`docs/fold_input_demo.md`](docs/fold_input_demo.md) にまとめています。
+> ⚠️ **This branch `demo-app` is a demo version.**
+> It is a prototype for hands-on testing and tuning of the mid-air flick input mechanics: **fold-based Japanese/English input**, **language switching via hand rotation**, an **input test page**, and **Japanese/English UI toggle**.
+> Fingering configurations and thresholds are **adjustable from the UI** — this is not a stable release.
+> Demo details are documented in [`docs/fold_input_demo.md`](docs/fold_input_demo.md).
 
-入力の**読み取り自体（手の検出 → ジェスチャ/フリックの解釈 → 文字の確定）はブラウザのフロント (`index.html`) で完結する**。
-backend（`emoji-search` の CLIP 埋め込み + FAISS 近傍検索）が要るのは、**絵文字のように「軌跡やテキストを認識・検索して候補を当てる」モダリティだけ**。
-日本語の50音フリックや言語切替モーションのような、ジェスチャを決定論的に文字へ写像する入力は backend 不要でフロント完結する（英語も同方式なら同様）。
+**Character recognition (hand detection → gesture/flick interpretation → character commit) runs entirely in the browser frontend (`index.html`).** The backend (CLIP embedding + FAISS nearest-neighbor search in `emoji-search`) is only needed for modalities that **recognize and search trajectories or text to find candidates** — like emoji. Flick-based kana input and language-switch motions that deterministically map gestures to characters are frontend-only, with no backend required (the same applies to English if using the same scheme).
 
-## サブシステム
+## Subsystems
 
-| モダリティ | パッケージ | 状態 | 概要 |
+| Modality | Package | Status | Overview |
 |---|---|---|---|
-| 絵文字入力 | `emoji-search` | **実装済み (v0)** | OpenMoji を CLIP で埋め込み、テキスト / 手書き画像 / カメラで検索 |
-| 日本語入力 | Web UI 内の試作 | **折り曲げ式デモ** | 指を折って行を選び (2進数運指) + フリックで母音 → パーで確定。フロント完結 |
-| 英語入力 | Web UI 内の試作 | **折り曲げ式デモ** | 同じ折り曲げエンジンで行 (1–11) を選び + フリックで英字。フロント完結 |
+| Emoji input | `emoji-search` | **Implemented (v0)** | Embeds OpenMoji with CLIP; search by text / handwritten image / camera |
+| Japanese input | Prototype in Web UI | **Fold-input demo** | Select row by folding fingers (binary fingering) + flick for vowel → confirm with open palm. Frontend-only. |
+| English input | Prototype in Web UI | **Fold-input demo** | Select row (1–11) with the same fold engine + flick for letter. Frontend-only. |
 
-> 日本語/英語の「試作」は `demo-app` ブランチの Web UI 内実装を指す（backend パッケージは未作成）。詳細は [`docs/fold_input_demo.md`](docs/fold_input_demo.md) / [`docs/japanese_input.md`](docs/japanese_input.md)。
+> The Japanese/English "prototypes" refer to the Web UI implementation in the `demo-app` branch (no backend packages yet). See [`docs/fold_input_demo.md`](docs/fold_input_demo.md) and [`docs/japanese_input.md`](docs/japanese_input.md) for details.
 
-共通基盤 `midair-shared` が **encoder 契約 / FAISS ユーティリティ / 統合契約 (`Searcher`)** を提供し、
-統合アプリ `midair-app` が `mode` に応じて各サブシステムを遅延ロードして振り分ける。
-ブラウザ UI は `midair-web`（FastAPI）が提供する — テキスト / 手書き / カメラの Mid-Air 入力、結果を画像表示、非同期検索。
+The shared foundation `midair-shared` provides the **encoder contract / FAISS utilities / integration contract (`Searcher`)**.
+The integrated app `midair-app` lazily loads and dispatches to each subsystem based on `mode`.
+The browser UI is served by `midair-web` (FastAPI) — text / handwritten / camera mid-air input, results displayed as images, async search.
 
-## リポジトリ構成 (uv workspace monorepo)
+## Repository Structure (uv workspace monorepo)
 
 ```
 mi-midair-input/
 ├── pyproject.toml              # uv workspace root (package=false, members=packages/*)
 ├── README.md / CLAUDE.md
 ├── Dockerfile / docker-compose.yml / .dockerignore
-├── scripts/run-web.sh          # Docker 起動 (空きポート自動選択)
-├── docs/                        # ドキュメント
-│   └── emoji_search/            #   DOCKER.md / 実験計画 など
+├── scripts/run-web.sh          # Docker launcher (auto-selects available port)
+├── docs/                        # Documentation
+│   └── emoji_search/            #   DOCKER.md / experiment plans, etc.
 ├── packages/
-│   ├── shared/                 # midair-shared: 共通基盤
+│   ├── shared/                 # midair-shared: shared foundation
 │   │   └── src/midair_shared/
-│   │       ├── encoder.py      #   TextEncoder / MultimodalEncoder 契約
-│   │       ├── index.py        #   FAISS 構築・保存・検索
-│   │       └── search.py       #   Searcher / SearchResult 契約 (統合の継ぎ目)
-│   ├── emoji-search/           # 絵文字入力 (実装済み)
+│   │       ├── encoder.py      #   TextEncoder / MultimodalEncoder contracts
+│   │       ├── index.py        #   FAISS build / save / search
+│   │       └── search.py       #   Searcher / SearchResult contracts (integration seam)
+│   ├── emoji-search/           # Emoji input (implemented)
 │   │   ├── scripts/           #   download_openmoji.py / build_index.py
 │   │   └── src/emoji_search/   #   encoder.py / data.py / searcher.py
-│   ├── app/                    # midair-app: 統合 CLI (`midair`)
+│   ├── app/                    # midair-app: integrated CLI (`midair`)
 │   │   └── src/midair_app/     #   registry.py / __main__.py
-│   └── web/                    # midair-web: Web アプリ (FastAPI, 非同期検索)
-│       ├── scripts/           #   fetch_mediapipe.py (カメラ入力用 MediaPipe 取得)
+│   └── web/                    # midair-web: Web app (FastAPI, async search)
+│       ├── scripts/           #   fetch_mediapipe.py (fetches MediaPipe for camera input)
 │       └── src/midair_web/     #   app.py / __main__.py / static/index.html
-└── data/                       # git 管理外 (.gitkeep のみ追跡)
+└── data/                       # Not tracked by git (.gitkeep only)
     ├── emoji_search/           #   openmoji/ + openmoji.json + index.faiss + metadata.jsonl
     └── english_search/
 ```
 
-データはサブシステム別ディレクトリに隔離し、相互に干渉しない設計にしている。
+Data is isolated in per-subsystem directories and does not cross-contaminate.
 
 ---
 
-# 動かし方
+# How to Run
 
-動かし方は **Docker** と **uv** の 2 通り。やりたいことに合わせてどちらかを選ぶ。
+**Recommended: Docker.** It isolates all dependencies (torch, transformers, faiss, MediaPipe) in a container, avoiding library conflicts with your local Python environment. Intel Mac runs natively; Apple Silicon runs via amd64 emulation.
 
-| 方法 | 向いている用途 | 特徴 |
-|---|---|---|
-| **[A. Docker](#a-docker-で動かす)** | 配布・再現性重視 | torch は CPU 版、CLIP / MediaPipe をイメージに焼き込み → ほぼオフライン。Intel Mac はネイティブ、Apple Silicon は amd64 エミュレーション |
-| **[B. uv](#b-uv-で動かす-ローカル開発)** | ローカル開発 | ホットリロード等。CLIP モデルは初回実行時に取得 |
+The uv method is for contributors who need to modify Python code and want hot reload. It requires managing the workspace dependencies locally and may conflict with existing packages.
 
-絵文字検索に必要な準備は次の 3 つ（方式ごとに手順が違う。下記参照）:
+Three things are needed for emoji search (steps differ by method — see below):
 
-- **OpenMoji 画像** … 結果の表示用（公式 Releases から取得）
-- **Drive の faiss index** … 検索用。各環境で重い CLIP 推論をやり直さないよう、ビルド済み index を共有 Drive から取得するのが基本
-- **MediaPipe (Hand Landmarker)** … カメラの Mid-Air 入力（手ジェスチャ）を使う場合のみ
+- **OpenMoji images** — for displaying results (downloaded from official Releases)
+- **Drive FAISS index** — for search. The pre-built index is shared via Drive to avoid running heavy CLIP inference on every machine.
+- **MediaPipe (Hand Landmarker)** — only needed for camera mid-air input (hand gestures)
 
-> `data/emoji_search/` に画像 + index が既に揃っている環境（別マシンからコピーした場合も含む）は、データ準備をスキップして起動へ進んでよい。
+> If `data/emoji_search/` already has images and the index (e.g., copied from another machine), you can skip data prep and go straight to startup.
 
 ---
 
-## A. Docker で動かす
+## A. Run with Docker (Recommended)
 
-### A-1. イメージをビルド
+### A-1. Build the image
 
 ```bash
 docker compose build
 ```
 
-- CPU 版 torch / transformers / faiss を導入し、**CLIP ViT-B/32** をイメージに焼き込む（初回は CLIP 約 600MB のダウンロード込みで数分）。
-- **MediaPipe（手検出）の JS / wasm / モデルもビルド時に同梱**される（`Dockerfile` が `fetch_mediapipe.py` を実行）。→ カメラの Mid-Air 入力も**追加準備なし・実行時オフライン**で動く。
+- Installs CPU-only torch / transformers / faiss and bakes **CLIP ViT-B/32** into the image (first build takes a few minutes including ~600 MB CLIP download).
+- **MediaPipe JS / wasm / model files are also bundled at build time** (`Dockerfile` runs `fetch_mediapipe.py`) → camera mid-air input works **offline with no extra setup**.
 
-### A-2. データ準備（OpenMoji 画像 + Drive の faiss index）
+### A-2. Prepare data (OpenMoji images + Drive FAISS index)
 
 ```bash
-# 基本: 表示用カラー画像(公式) と index(Drive) をまとめて取得 (CLIP 推論なし・軽い)
+# Fetch display images (official) and index (Drive) in one command — no CLIP inference needed
 docker compose --profile setup run --rm fetch
 #   -> data/emoji_search/{openmoji/, openmoji.json, index.faiss, metadata.jsonl, index_meta.json}
 ```
 
-- **OpenMoji / Drive faiss はこの 1 コマンドで両方そろう**（`fetch` サービスが `download_openmoji.py` と `gdown` を実行）。
-- **MediaPipe は A-1 でイメージに焼き込み済みのため、ここでの準備は不要。**
-- 取得元 Drive フォルダを変えるとき: `MIDAIR_INDEX_URL="<別フォルダの共有リンク>" docker compose --profile setup run --rm fetch`。
-- ⚠️ `gdown --folder` は `data/<Drive フォルダ名>/` に展開する。`data/emoji_search/` に入るのは**共有フォルダ名が `emoji_search` の場合**（リネームすると別ディレクトリに落ちる）。
+- **OpenMoji and the Drive FAISS index are both fetched by this single command** (`fetch` service runs `download_openmoji.py` and `gdown`).
+- **MediaPipe was already baked in at A-1 — no action needed here.**
+- To use a different Drive folder: `MIDAIR_INDEX_URL="<other folder share link>" docker compose --profile setup run --rm fetch`
+- ⚠️ `gdown --folder` extracts into `data/<Drive folder name>/`. It lands in `data/emoji_search/` only **if the shared folder is named `emoji_search`** (renaming drops it into a different directory).
 
-Drive を使わずローカルで index を構築する場合（線画ソースから、CLIP 推論で重い）:
+To build the index locally from scratch (from line-art source, heavy CLIP inference):
 
 ```bash
 docker compose --profile setup run --rm prepare
 ```
 
-### A-3. 起動（ポートの自動割り当て）
+### A-3. Start (auto port assignment)
 
-**推奨は `scripts/run-web.sh`**。これは「**空きポートを先に決めてから `docker compose up` を呼ぶ**」ラッパーで、決まったポートの URL を表示する:
+**Recommended: `scripts/run-web.sh`** — a wrapper that **picks an available port first, then calls `docker compose up`**, and prints the URL:
 
-1. host の 8762 から順に空きポートを探す（使用中ならずらす。例: 8762/8763 が埋まっていれば 8764）
-2. `MIDAIR_WEB_PORT=<空きポート>` を入れて `docker compose up web` を実行
-3. `http://localhost:<空きポート>` を表示
-
-```bash
-scripts/run-web.sh               # 空きポートを選んで起動し、URL を表示
-scripts/run-web.sh -d            # バックグラウンド (追加引数は compose に渡る)
-```
-
-ポートを固定したい場合は素の `docker compose` を使う（host ポートは固定。**8762 が埋まっていると起動失敗**し、URL も表示しない）:
+1. Scans for an open port starting at 8762 (shifts if taken — e.g., if 8762/8763 are busy, uses 8764)
+2. Runs `docker compose up web` with `MIDAIR_WEB_PORT=<port>`
+3. Prints `http://localhost:<port>`
 
 ```bash
-# 既定: ホスト 8762 -> コンテナ 8000
-docker compose up web            # フォアグラウンド  http://localhost:8762
-docker compose up -d web         # バックグラウンド
-MIDAIR_WEB_PORT=9000 docker compose up web   # ポートを手動指定
+scripts/run-web.sh               # Pick port, start, print URL
+scripts/run-web.sh -d            # Background mode (extra args passed to compose)
 ```
 
-停止:
+To fix the port, use `docker compose` directly (**fails if 8762 is taken**, and does not print the URL):
+
+```bash
+# Default: host 8762 -> container 8000
+docker compose up web            # Foreground  http://localhost:8762
+docker compose up -d web         # Background
+MIDAIR_WEB_PORT=9000 docker compose up web   # Manual port override
+```
+
+Stop:
 
 ```bash
 docker compose down
 ```
 
-### A-4. アプリの使い方
+### A-4. Using the app
 
-- **ブラウザ** で表示された URL（既定 http://localhost:8762 ）を開く。テキスト入力 / 手書きキャンバス / カメラの Mid-Air 入力で検索でき、結果は絵文字画像のグリッドで表示される（検索は非同期ジョブ）。
-- **CLI をワンショットで使う**:
+- Open the URL shown (default http://localhost:8762) **in a browser**. Search via text input, handwritten canvas, or camera mid-air input; results appear as a grid of emoji images (search is an async job).
+- **One-shot CLI**:
   ```bash
   docker compose run --rm web midair --mode emoji --query "cat" --top-k 5
   ```
 
-詳細は [`docs/emoji_search/DOCKER.md`](docs/emoji_search/DOCKER.md)。
+See [`docs/emoji_search/DOCKER.md`](docs/emoji_search/DOCKER.md) for details.
 
 ---
 
-## B. uv で動かす (ローカル開発)
+## B. Run with uv (for contributors)
 
-### B-0. セットアップ
+Use this only if you need to modify Python code. Requires [uv](https://docs.astral.sh/uv/).
+
+### B-0. Setup
 
 ```bash
-uv sync          # 全 workspace パッケージを 1 つの venv に導入
+uv sync          # Install all workspace packages into a single shared venv
 ```
 
-確認:
+Verify:
 
 ```bash
 uv run python -c "import torch, transformers, faiss; print('ok')"
 ```
 
-### B-1. OpenMoji 画像をダウンロード（表示用）
+### B-1. Download OpenMoji images (for display)
 
 ```bash
 uv run python packages/emoji-search/scripts/download_openmoji.py
-#   -> data/emoji_search/{openmoji/, openmoji.json}   (冪等: 既存はスキップ、--force で再取得)
+#   -> data/emoji_search/{openmoji/, openmoji.json}   (idempotent: skips existing, --force to re-fetch)
 ```
 
-### B-2. Drive から faiss index をダウンロード（検索用）
+### B-2. Download FAISS index from Drive (for search)
 
 ```bash
 uvx gdown --folder "https://drive.google.com/drive/folders/1ucgsVXXp6jOTWapOPTLsz9i-wpnPS652" -O data
 #   -> data/emoji_search/{index.faiss, metadata.jsonl, index_meta.json}
 ```
 
-- ⚠️ `gdown --folder` は `data/<Drive フォルダ名>/` に展開する。上の例で `data/emoji_search/` に入るのは**共有フォルダ名が `emoji_search` の場合**。
-- 検索は `index_meta.json` の `model_id` と**同じ CLIP モデル**で行う前提（index はデバイス非依存・移植可能）。
+- ⚠️ `gdown --folder` extracts into `data/<Drive folder name>/`. The above command places files in `data/emoji_search/` only **if the shared folder is named `emoji_search`**.
+- Search assumes the **same CLIP model** as specified in `index_meta.json` (the index is device-independent and portable).
 
-Drive を使わずローカルで index を構築する場合（線画ソースから、CLIP 推論で重い）:
+To build the index locally from scratch (from line-art source, heavy CLIP inference):
 
 ```bash
 uv run python packages/emoji-search/scripts/download_openmoji.py --variant both
 uv run python packages/emoji-search/scripts/build_index.py --source-variant black
 ```
 
-### B-3. MediaPipe をダウンロード（カメラの Mid-Air 入力を使う場合のみ）
+### B-3. Download MediaPipe (only for camera mid-air input)
 
 ```bash
 uv run python packages/web/scripts/fetch_mediapipe.py
-#   -> packages/web/src/midair_web/static/vendor/mediapipe/ (冪等、--force で再取得)
+#   -> packages/web/src/midair_web/static/vendor/mediapipe/ (idempotent, --force to re-fetch)
 ```
 
-- テキスト / 手書きだけ使うなら不要。**カメラ入力を使うときだけ**実行する（Docker では A-1 で自動同梱されるため不要）。
+- Not needed if you only use text / handwritten input. **Only run this if you want camera input** (Docker handles this automatically at A-1).
 
-### B-4. アプリの使い方
+### B-4. Using the app
 
-起動前に、依存 import・OpenMoji・FAISS index・MediaPipe・Web 起動前提が揃っているかを一括確認できる:
+Before starting, run the health check to confirm all dependencies, OpenMoji, FAISS index, MediaPipe, and web prerequisites are in place:
 
 ```bash
 uv run midair-doctor
 ```
 
 ```bash
-# Web アプリ (ポート自動割り当て内蔵)
+# Web app (auto port assignment built in)
 uv run midair-web
-#   既定 http://127.0.0.1:8762。8762 が使用中なら自動で次の空きポートへずらす。
-#   --port <開始ポート> / --strict-port (ずらさず固定) / --reload (開発オートリロード) / --host
+#   Default http://127.0.0.1:8762. Automatically shifts to the next available port if 8762 is taken.
+#   --port <start port> / --strict-port (no shifting) / --reload (dev auto-reload) / --host
 
-# 統合 CLI
+# Integrated CLI
 uv run midair --mode emoji --query "cat" --top-k 5
 #   0.250  🐈‍⬛  1F408-200D-2B1B  black cat
 #   0.246  🐈️  1F408            cat
 #   ...
-uv run midair --mode japanese --query "..."   # 未実装 (スケルトン、exit 2)
-uv run midair --mode english  --query "..."   # 未実装 (スケルトン、exit 2)
+uv run midair --mode japanese --query "..."   # Not implemented (skeleton, exits 2)
+uv run midair --mode english  --query "..."   # Not implemented (skeleton, exits 2)
 ```
 
-詳細は [`packages/emoji-search/README.md`](packages/emoji-search/README.md) と [`packages/web/README.md`](packages/web/README.md)。
+See [`packages/emoji-search/README.md`](packages/emoji-search/README.md) and [`packages/web/README.md`](packages/web/README.md) for more.
 
 ---
 
-## 詰まったときの確認
+## Troubleshooting
 
-### `uv run ...` がインストールで止まって見える
+### `uv run ...` appears to hang during install
 
-どのプロセスが動いているか確認する。
+Check what's actually running:
 
 ```bash
 ps -ef | grep -E 'uv run|build_index|fetch_mediapipe|download_openmoji'
 ```
 
-`build_index.py` の Python プロセスが CPU を使っている場合は、インストールではなく index 構築中。`[2/4]` 以降は CLIP のローカル計算なので待つ。
+If a `build_index.py` Python process is consuming CPU, it's building the index — not stuck on install. From step `[2/4]` onward, CLIP is computing locally; just wait.
 
-### Hugging Face の警告が出る
+### Hugging Face warnings appear
 
 ```text
 Warning: You are sending unauthenticated requests to the HF Hub.
 ```
 
-未認証アクセスなので遅くなったり制限されやすい、という警告。すぐに失敗を意味しない。index 構築が遅いだけなら、ローカルで構築せず Drive から取得する。
+This warns that unauthenticated access may be slower or rate-limited — it does not mean failure. If index building is just slow, use the Drive index instead of building locally:
 
 ```bash
 uvx gdown --folder "https://drive.google.com/drive/folders/1ucgsVXXp6jOTWapOPTLsz9i-wpnPS652" -O data
 ```
 
-モデル取得だけ先に分けて確認する場合:
+To verify model download separately:
 
 ```bash
 uv run python -c "from transformers import CLIPModel, CLIPProcessor; m='openai/clip-vit-base-patch32'; CLIPModel.from_pretrained(m); CLIPProcessor.from_pretrained(m)"
 ```
 
-### `vision_bundle.mjs` のカメラエラーが出る
+### Camera error for `vision_bundle.mjs`
 
-MediaPipe の静的ファイルが未取得、または取得後にサーバーを再起動していない状態。
+MediaPipe static files are missing, or the server wasn't restarted after fetching them.
 
 ```bash
 uv run python packages/web/scripts/fetch_mediapipe.py
 uv run midair-web
 ```
 
-その後、ブラウザをハードリロードする。
+Then hard-reload the browser.
 
-### 生成物があるかだけ確認したい
+### Just want to check if all artifacts are present
 
 ```bash
 uv run midair-doctor
@@ -271,16 +268,16 @@ uv run midair-doctor
 
 ---
 
-## ドキュメント
+## Documentation
 
-- [`docs/fold_input_demo.md`](docs/fold_input_demo.md) — **`demo-app` ブランチのデモ内容**（折り曲げ式 日本語/英語入力・言語切替・入力テスト・UI 日英切替・調整項目）
-- [`docs/japanese_input.md`](docs/japanese_input.md) — 日本語入力 (折り曲げ式) の運指・パラメータ・内部仕様
-- [`docs/architecture.md`](docs/architecture.md) — 全体構成 / 各 packages のスコープと境界 / 統合の継ぎ目
-- [`docs/emoji_search/DOCKER.md`](docs/emoji_search/DOCKER.md) — Docker でのローカル実行 (Mac / CPU)
-- [`docs/emoji_search/experiment-domain-matched-index.md`](docs/emoji_search/experiment-domain-matched-index.md) — 手書きドメインに合わせた index 構築の実験計画 (別デバイス向け指示書)
-- [`CLAUDE.md`](CLAUDE.md) — システム全体構成 / 開発フロー (git-flow) / エージェント向け指針
-- `packages/*/README.md` — 各サブシステムの詳細
+- [`docs/fold_input_demo.md`](docs/fold_input_demo.md) — **`demo-app` branch demo contents** (fold-based Japanese/English input, language switching, input test, UI language toggle, tunable parameters)
+- [`docs/japanese_input.md`](docs/japanese_input.md) — Japanese fold-input: fingering, parameters, internal spec
+- [`docs/architecture.md`](docs/architecture.md) — Overall architecture / package scopes and boundaries / integration seam
+- [`docs/emoji_search/DOCKER.md`](docs/emoji_search/DOCKER.md) — Local Docker execution (Mac / CPU)
+- [`docs/emoji_search/experiment-domain-matched-index.md`](docs/emoji_search/experiment-domain-matched-index.md) — Experiment plan for building a domain-matched index for handwriting (instructions for another device)
+- [`CLAUDE.md`](CLAUDE.md) — System architecture / development flow (git-flow) / agent guidelines
+- `packages/*/README.md` — Per-subsystem details
 
-## ライセンス
+## License
 
-OpenMoji の絵文字データは **CC BY-SA 4.0**（再配布時は表記が必要）。
+OpenMoji emoji data is licensed under **CC BY-SA 4.0** (attribution required when redistributing).
