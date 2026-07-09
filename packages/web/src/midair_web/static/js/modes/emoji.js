@@ -50,7 +50,7 @@ export default {
     if (langInfo.fired) {
       setGesture(`-> ${langInfo.label}`);
     } else {
-      setGesture(drawMode === "draw" ? "描画中" : "待機");
+      setGesture(drawMode === "draw" ? "Drawing" : "—");
     }
 
     if (applyLangCamState(langInfo)) {

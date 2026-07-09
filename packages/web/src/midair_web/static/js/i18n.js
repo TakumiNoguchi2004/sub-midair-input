@@ -56,7 +56,7 @@ const DICT = {
   "opt.flip": { ja: "手のひら→甲にひっくり返す", en: "Flip palm → back" },
 
   // --- ラベル ---
-  "label.currentMode": { ja: "現在の入力モード", en: "Current input mode" },
+  "label.currentMode": { ja: "言語", en: "Language" },
   "label.langMotion": { ja: "言語切替モーション", en: "Language-switch motion" },
   "label.orient": { ja: "いま検出中の手の向き", en: "Detected hand orientation" },
   "label.orientInvert": { ja: "検出が逆のとき", en: "If detection is reversed" },
@@ -110,7 +110,7 @@ const DICT = {
   // --- カメラ状態 ---
   "cam.idleLabel": { ja: "待機中", en: "Idle" },
   "cam.idleDetail": { ja: "カメラは停止しています", en: "Camera is stopped" },
-  "cam.modeLabel": { ja: "{label}入力モード", en: "{label} input mode" },
+  "cam.modeLabel": { ja: "{label}", en: "{label}" },
   "cam.afterSwitch": { ja: "切替直後: 少し待ってから入力してください", en: "Just switched: wait a moment before typing" },
   "cam.searchRun": { ja: "検索実行中", en: "Searching" },
   "cam.sendingImg": { ja: "手書き画像を送信しています", en: "Sending handwriting image" },
@@ -131,7 +131,7 @@ const DICT = {
   "cam.noHandDetail": { ja: "手全体が白い検出エリアに入るようにしてください", en: "Keep your whole hand inside the white detection area" },
   "cam.clippedLabel": { ja: "手が見切れています", en: "Hand is cut off" },
   "cam.clippedDetail": { ja: "手のひら〜指先まで枠内に収めてください", en: "Fit palm to fingertips within the frame" },
-  "cam.langSwitched": { ja: "言語入力モードを切り替えました", en: "Switched input language mode" },
+  "cam.langSwitched": { ja: "フリックモードを切り替えました", en: "Switched flick mode" },
   "cam.langHold": { ja: "言語切替 保持中", en: "Holding to switch language" },
   "cam.langHoldDetail": { ja: "手の甲を保持 {pct}%", en: "Holding back of hand {pct}%" },
   "cam.jpModeDetail": { ja: "同じピンチを50音フリックとして解釈します", en: "Interprets fold + flick as kana input" },

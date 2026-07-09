@@ -65,19 +65,20 @@ const HANDAKUTEN_MAP = Object.fromEntries([
   ["は","ぱ"],["ひ","ぴ"],["ふ","ぷ"],["へ","ぺ"],["ほ","ぽ"],
 ]);
 
-// --- 運指テーブル: extend(T/I/M/P の組み合わせ) → 行 ---
+// --- 運指テーブル: extend(T/I/M/R/P の組み合わせ) → 行 ---
+// EN と 1:1 対応 (同じ指の組み合わせで同じ行番号を選択できる)
 export const DEFAULT_ROW_MAP = [
-  { row: "あ", extend: ["T"]                },
-  { row: "か", extend: ["I"]                },
-  { row: "さ", extend: ["T", "I"]           },
-  { row: "た", extend: ["I", "M"]           },
-  { row: "な", extend: ["T", "I", "M"]      },
-  { row: "は", extend: ["T", "P"]           },
-  { row: "ま", extend: ["I", "P"]           },
-  { row: "や", extend: ["T", "I", "P"]      },
-  { row: "ら", extend: ["I", "M", "P"]      },
-  { row: "わ", extend: ["T", "I", "M", "P"] },
-  { row: "、", extend: ["P"]               },
+  { row: "あ", extend: ["T"]                   },
+  { row: "か", extend: ["I"]                   },
+  { row: "さ", extend: ["I", "M"]              },
+  { row: "た", extend: ["M", "R"]              },
+  { row: "な", extend: ["R", "P"]              },
+  { row: "は", extend: ["T", "I"]              },
+  { row: "ま", extend: ["I", "M", "R"]         },
+  { row: "や", extend: ["M", "R", "P"]         },
+  { row: "ら", extend: ["I", "M", "R", "P"]   },
+  { row: "わ", extend: ["T", "I", "M"]         },
+  { row: "、", extend: ["P"]                   },
 ];
 export let rowMap = JSON.parse(JSON.stringify(DEFAULT_ROW_MAP));
 
@@ -548,7 +549,7 @@ function updateJapanese(hand, now) {
   if (isRest) {
     rowPending = null;
     if (hand.isOpen) lastOpenPos = hand.palmPoint;
-    jpStatus(hand.fingers.pinky ? "P: は/ま/や/ら/わ/句行" : "あ/か/さ/た/な行");
+    jpStatus(hand.fingers.pinky ? "R+P: な/や/ら or P: 句" : "T/I/M/R → あ/か/さ/た行");
     return;
   }
 
@@ -572,7 +573,7 @@ export default {
   label: "日本語",
   reset() { resetFull(); const dbg = $("orientDebug"); if (dbg) dbg.style.display = "none"; },
   onFrame(ctx) {
-    const { now, langInfo, orient, hand, gesture, octx } = ctx;
+    const { now, langInfo, hand, octx } = ctx;
     // JP専用削除: フリップ即戻し→1文字, 保持→全削除
     // (行ロック中は centerBaseRoll = このセッションの真のニュートラル角度をヒントとして渡す)
     const del = updateDelete(hand, now);
@@ -772,7 +773,7 @@ export default {
         g.restore();
       }
     }
-    setGesture(langInfo.fired ? `-> ${langInfo.label}` : "日本語");
+    setGesture(langInfo.fired ? `-> ${langInfo.label}` : "—");
     if (!applyLangCamState(langInfo)) {
       setCameraState("detecting", "日本語入力モード", "指を伸ばして行選択 / フリックで方向 or グー or フリップであ段");
     }
@@ -787,29 +788,22 @@ export function renderJapaneseSettings() {
   if (!root) return;
   root.innerHTML = "";
 
-  const thTitle = document.createElement("div");
-  thTitle.className = "jp-cfg-title"; thTitle.textContent = "検出しきい値";
-  root.appendChild(thTitle);
-  root.appendChild(makeSlider("フリック距離", 0.02, 1.00, 0.01, FLICK_DIST, (v) => { FLICK_DIST = v; }));
-
   const mapTitle = document.createElement("div");
-  mapTitle.className = "jp-cfg-title"; mapTitle.textContent = "運指表";
+  mapTitle.className = "jp-cfg-title"; mapTitle.textContent = "Fingering table";
   root.appendChild(mapTitle);
 
   const legend = document.createElement("div");
   legend.className = "jp-cfg-legend";
-  legend.innerHTML = "<b>T</b>=親指 <b>I</b>=人差 <b>M</b>=中 <b>P</b>=小指 &nbsp;／&nbsp; 列: ・(中央) ← ↑ → ↓";
+  legend.innerHTML = "<b>T</b>=Thumb &nbsp;<b>I</b>=Index &nbsp;<b>M</b>=Middle &nbsp;<b>R</b>=Ring &nbsp;<b>P</b>=Pinky";
   root.appendChild(legend);
 
-  // グリッド表: 指の組み合わせ | グー | ← | ↑ | → | ↓
   const sk = (k) => (!k ? "—" : (k === " " || k === "　") ? "⎵" : k);
   const table = document.createElement("div");
   table.className = "jp-flick-table";
 
-  // ヘッダ行
   const hdr = document.createElement("div");
   hdr.className = "jp-flick-row jp-flick-hdr";
-  hdr.innerHTML = `<span>指</span><span>・</span><span>←</span><span>↑</span><span>→</span><span>↓</span>`;
+  hdr.innerHTML = `<span>Fingers</span><span>·</span><span>←</span><span>↑</span><span>→</span><span>↓</span>`;
   table.appendChild(hdr);
 
   for (const r of rowMap) {
@@ -822,6 +816,11 @@ export function renderJapaneseSettings() {
     table.appendChild(row);
   }
   root.appendChild(table);
+
+  const thTitle = document.createElement("div");
+  thTitle.className = "jp-cfg-title"; thTitle.textContent = "Detection thresholds";
+  root.appendChild(thTitle);
+  root.appendChild(makeSlider("Flick distance", 0.02, 1.00, 0.01, FLICK_DIST, (v) => { FLICK_DIST = v; }));
 }
 
 function makeSlider(label, min, max, step, value, onInput) {

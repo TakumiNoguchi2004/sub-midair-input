@@ -32,22 +32,23 @@ const ROWS = {
 const DIR_LABELS = ["center", "left", "up", "right", "down"];
 
 const isAlpha = (c) => (c >= "a" && c <= "z") || (c >= "A" && c <= "Z");
-const show = (c) => (c === " " ? "␣" : c || "—");
+const show = (c) => (c === " " ? "⎵" : c || "—");
 
 // --- 運指テーブル: extend(T/I/M/P の組み合わせ) → 行。JPの運指テーブルと1:1で対応させ、
 //     日本語のかな行(あ/か/さ/た/な/は/ま/や/ら/わ/、)と同じ指の動きで行を切り替えられるようにする ---
+// JP と 1:1 対応 (同じ指の組み合わせで JP の同じ行番号を選択できる)
 export const DEFAULT_ROW_MAP = [
-  { row: "1",  extend: ["T"]                },
-  { row: "2",  extend: ["I"]                },
-  { row: "3",  extend: ["T", "I"]           },
-  { row: "4",  extend: ["I", "M"]           },
-  { row: "5",  extend: ["T", "I", "M"]      },
-  { row: "6",  extend: ["T", "P"]           },
-  { row: "7",  extend: ["I", "P"]           },
-  { row: "8",  extend: ["T", "I", "P"]      },
-  { row: "9",  extend: ["I", "M", "P"]      },
-  { row: "10", extend: ["T", "I", "M", "P"] },
-  { row: "11", extend: ["P"]                },
+  { row: "1",  extend: ["T"]                   },
+  { row: "2",  extend: ["I"]                   },
+  { row: "3",  extend: ["I", "M"]              },
+  { row: "4",  extend: ["M", "R"]              },
+  { row: "5",  extend: ["R", "P"]              },
+  { row: "6",  extend: ["T", "I"]              },
+  { row: "7",  extend: ["I", "M", "R"]         },
+  { row: "8",  extend: ["M", "R", "P"]         },
+  { row: "9",  extend: ["I", "M", "R", "P"]   },
+  { row: "10", extend: ["T", "I", "M"]         },
+  { row: "11", extend: ["P"]                   },
 ];
 export let rowMap = JSON.parse(JSON.stringify(DEFAULT_ROW_MAP));
 
@@ -113,6 +114,7 @@ let rowPending  = null;   // { row, since } 行選択のデバウンス候補
 let flickStart  = null;   // フリック基準座標 (最後のパー位置 or ロック時位置)
 let flickArmed  = true;   // true=フリック受付中, false=検知済み・基準に戻るまで待機
 let lastOpenPos = null;   // 最後に isOpen だったときの palmPoint
+let _enGuuFrozenPos = null; // グー開始時に凍結したカーソル位置 (JP と同様)
 let leftMargin  = false;  // 現在の確定サイクル中に一度でも FLICK_DIST 外に出たか
 let centerBaseRoll = 0;   // 中央確定用フリップのロール基準 (中央保持中に追従)
 let centerFlipping = false; // 中央確定用フリップの検出中フラグ
@@ -223,6 +225,7 @@ function resetRowState() {
 function resetFull() {
   resetRowState();
   resetModState();
+  _enGuuFrozenPos = null;
 }
 
 function updateEnglish(hand, now) {
@@ -345,7 +348,7 @@ function updateEnglish(hand, now) {
   if (isRest) {
     rowPending = null;
     if (hand.isOpen) lastOpenPos = hand.palmPoint;
-    enStatus(hand.fingers.pinky ? "P: rows 6/7/8/9/10/11" : "rows 1/2/3/4/5");
+    enStatus(hand.fingers.pinky ? "R+P: 5/8/9 or P: 11" : "T/I/M/R → rows 1/2/3/4");
     return;
   }
 
@@ -374,12 +377,6 @@ export default {
     if (del.action === "delete1")        { enBackspace(); enStatus("Deleted 1 character"); }
     else if (del.action === "deleteAll") { enClear(); }
     if (hand.isFist) {
-      if (del.isFlipped && octx) {
-        octx.save();
-        octx.fillStyle = "rgba(255,60,60,0.30)";
-        octx.fillRect(0, 0, octx.canvas.width, octx.canvas.height);
-        octx.restore();
-      }
       const roll = hand.orientation.roll;
       if (del.phase === "flipped") {
         const remaining = Math.max(0, Math.round(DEL_QUICK_MS - del.flippedMs));
@@ -390,8 +387,26 @@ export default {
         enStatus(`roll:${roll.toFixed(0)}° fist`);
       }
     }
+    // グー中はカーソルを最後のパー位置に凍結 (JP と同様)
+    if (hand.isFist) {
+      if (!_enGuuFrozenPos) _enGuuFrozenPos = flickStart ?? lastOpenPos ?? null;
+    } else {
+      _enGuuFrozenPos = null;
+    }
     { const _pc = $("padCursor");
-      drawPadCursor(hand.palmPoint.x * (_pc?.width ?? 1), hand.palmPoint.y * (_pc?.height ?? 1), "point"); }
+      const _cp = _enGuuFrozenPos ?? hand.palmPoint;
+      drawPadCursor(_cp.x * (_pc?.width ?? 1), _cp.y * (_pc?.height ?? 1), "point"); }
+    // 赤フラッシュ: drawPadCursor が clearRect するため必ずその後に描く (JP と同様)
+    if (hand.isFist && del.isFlipped) {
+      const pc = $("padCursor");
+      if (pc) {
+        const pg = pc.getContext("2d");
+        pg.save();
+        pg.fillStyle = "rgba(255,50,50,0.45)";
+        pg.fillRect(0, 0, pc.width, pc.height);
+        pg.restore();
+      }
+    }
     // デバッグ: 手に追従するローカル座標軸をoverlayに描画 (JPと同一の可視化)
     if (octx) {
       const lm = hand.lm;
@@ -452,14 +467,18 @@ export default {
 
       octx.restore();
     }
+    // updateEnglish 前にスナップショット (commit 後の resetRowState で消える前に取得)
+    const _visRow = lockedRow;
+    const _visRef = flickStart ?? (_enGuuFrozenPos ?? null);
     updateEnglish(hand, now);
     // flickStart (基準点) の可視化: マージン円 + X字仕切り + 現在位置への線
-    if (lockedRow && flickStart) {
+    if (_visRow && _visRef) {
       const el = $("padCursor");
       if (el) {
         const g = el.getContext("2d");
-        const px = flickStart.x * el.width,  py = flickStart.y * el.height;
-        const cx = hand.palmPoint.x * el.width, cy = hand.palmPoint.y * el.height;
+        const px = _visRef.x * el.width,  py = _visRef.y * el.height;
+        const cx = (_enGuuFrozenPos ?? hand.palmPoint).x * el.width;
+        const cy = (_enGuuFrozenPos ?? hand.palmPoint).y * el.height;
         const r  = FLICK_DIST * el.width;
         const ready = flickArmed;
         const rimColor = ready ? "#00cc44" : "#ff8800";
@@ -472,7 +491,7 @@ export default {
 
         const ext = r * 2;
         g.strokeStyle = rimColor;
-        g.lineWidth = 1;
+        g.lineWidth = 2;
         g.globalAlpha = 0.4;
         g.beginPath();
         g.moveTo(px - ext, py - ext); g.lineTo(px + ext, py + ext);
@@ -489,7 +508,7 @@ export default {
 
         // 修飾状態バッジ (A) - フリック後の大文字/小文字トグル状態
         if (_modState > 0) {
-          g.font = "bold 32px system-ui";
+          g.font = "bold 36px system-ui";
           g.textAlign = "center";
           g.textBaseline = "bottom";
           g.shadowColor = "rgba(0,0,0,0.9)";
@@ -499,12 +518,42 @@ export default {
           g.shadowBlur = 0;
         }
 
+        // フリック方向の文字ラベルを円周外周に表示 (JP と同様)
+        { const chars = ROWS[_visRow];
+          const labelR = r * 1.75;
+          const adx = (_enGuuFrozenPos ?? hand.palmPoint).x - _visRef.x;
+          const ady = (_enGuuFrozenPos ?? hand.palmPoint).y - _visRef.y;
+          const activeDir = flickDir(adx, ady);
+          const labelPositions = [
+            { dx: 0,       dy: 0,       idx: 0 },
+            { dx: -labelR, dy: 0,       idx: 1 },
+            { dx: 0,       dy: -labelR, idx: 2 },
+            { dx: labelR,  dy: 0,       idx: 3 },
+            { dx: 0,       dy: labelR,  idx: 4 },
+          ];
+          g.font = "bold 22px system-ui";
+          g.textAlign = "center";
+          g.textBaseline = "middle";
+          for (const { dx, dy, idx } of labelPositions) {
+            const ch = show(chars[idx]);
+            if (!ch || ch === "—") continue;
+            const tx = px + dx, ty = py + dy;
+            const isActive = flickArmed && activeDir === idx && idx !== 0;
+            g.lineWidth = 5;
+            g.strokeStyle = "rgba(0,0,0,0.85)";
+            g.strokeText(ch, tx, ty);
+            g.fillStyle = isActive ? "#ffd15b"
+              : flickArmed ? "#ffffff" : "rgba(255,255,255,0.55)";
+            g.fillText(ch, tx, ty);
+          }
+        }
+
         g.restore();
       }
     }
-    setGesture(langInfo.fired ? `-> ${langInfo.label}` : "English");
+    setGesture(langInfo.fired ? `-> ${langInfo.label}` : "—");
     if (!applyLangCamState(langInfo)) {
-      setCameraState("detecting", "English input mode", "Extend fingers to pick a row / flick for a letter, fist or flip for center");
+      setCameraState("detecting", "English", "Extend fingers to pick a row / flick for a letter, fist or flip for center");
     }
   },
 };
@@ -517,31 +566,38 @@ export function renderEnglishSettings() {
   if (!root) return;
   root.innerHTML = "";
 
-  const thTitle = document.createElement("div");
-  thTitle.className = "jp-cfg-title"; thTitle.textContent = "Detection thresholds";
-  root.appendChild(thTitle);
-  root.appendChild(makeSlider("Row lock (ms)", 60, 600, 10, HOLD_MS, (v) => { HOLD_MS = v; }));
-  root.appendChild(makeSlider("Flick distance", 0.02, 1.00, 0.01, FLICK_DIST, (v) => { FLICK_DIST = v; }));
-
   const mapTitle = document.createElement("div");
-  mapTitle.className = "jp-cfg-title"; mapTitle.textContent = "Fingering (T/I/M/P combo -> row)";
+  mapTitle.className = "jp-cfg-title"; mapTitle.textContent = "Fingering table";
   root.appendChild(mapTitle);
 
   const legend = document.createElement("div");
   legend.className = "jp-cfg-legend";
-  legend.innerHTML = "<b>T</b>=Thumb / <b>I</b>=Index / <b>M</b>=Middle / <b>R</b>=Ring / <b>P</b>=Pinky";
+  legend.innerHTML = "<b>T</b>=Thumb &nbsp;<b>I</b>=Index &nbsp;<b>M</b>=Middle &nbsp;<b>R</b>=Ring &nbsp;<b>P</b>=Pinky";
   root.appendChild(legend);
 
   const table = document.createElement("div");
-  table.className = "jp-cfg-table";
+  table.className = "jp-flick-table";
+
+  const hdr = document.createElement("div");
+  hdr.className = "jp-flick-row jp-flick-hdr";
+  hdr.innerHTML = `<span>Fingers</span><span>·</span><span>←</span><span>↑</span><span>→</span><span>↓</span>`;
+  table.appendChild(hdr);
+
   for (const r of rowMap) {
-    const letters = ROWS[r.row].map(show).join(" ");
-    const item = document.createElement("div");
-    item.className = "jp-cfg-pair";
-    item.innerHTML = `<b>${r.row}</b><span>${r.extend.join("+")}: ${letters}</span>`;
-    table.appendChild(item);
+    const chars = ROWS[r.row];
+    const row = document.createElement("div");
+    row.className = "jp-flick-row";
+    row.innerHTML =
+      `<span class="jp-flick-key">${r.extend.join("+")}</span>` +
+      chars.map(c => `<span>${show(c)}</span>`).join("");
+    table.appendChild(row);
   }
   root.appendChild(table);
+
+  const thTitle = document.createElement("div");
+  thTitle.className = "jp-cfg-title"; thTitle.textContent = "Detection thresholds";
+  root.appendChild(thTitle);
+  root.appendChild(makeSlider("Flick distance", 0.02, 1.00, 0.01, FLICK_DIST, (v) => { FLICK_DIST = v; }));
 }
 
 function makeSlider(label, min, max, step, value, onInput) {

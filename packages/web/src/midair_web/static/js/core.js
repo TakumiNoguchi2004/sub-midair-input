@@ -13,7 +13,7 @@ import { LandmarkSmoother } from "./gestures/one-euro-filter.js";
 import { t, getLang, setLang, applyStaticI18n } from "./i18n.js";
 import emoji from "./modes/emoji.js";
 import japanese, { jpFlickBackspace, jpFlickClear, renderJapaneseSettings } from "./modes/japanese.js";
-import english, { renderEnglishSettings } from "./modes/english.js";
+import english, { enBackspace, enClear, renderEnglishSettings } from "./modes/english.js";
 import { testToggle, testNext, initTest, refreshTest } from "./test.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -274,7 +274,7 @@ export function setInputMode(mode) {
   if (textSearch) textSearch.style.display = (mode === "emoji") ? "" : "none";
   if (!mpRunning) {
     const ml = t("mode." + current.id);
-    setGesture(ml);
+    setGesture("—");
     setCameraState("idle", t("cam.modeLabel", { label: ml }), t("cam.idleDetail"));
     return;
   }
@@ -599,8 +599,8 @@ function init() {
   // index.html の onclick="..." から呼べるよう window に載せる
   Object.assign(window, {
     searchText, searchImage, clearPad, toggleCam, setInputMode,
-    jpFlickBackspace: () => { jpFlickBackspace(); refreshCharHighlight(); },
-    jpFlickClear: () => { jpFlickClear(); refreshCharHighlight(); },
+    jpFlickBackspace: () => { (inputMode === "english" ? enBackspace : jpFlickBackspace)(); refreshCharHighlight(); },
+    jpFlickClear:     () => { (inputMode === "english" ? enClear     : jpFlickClear    )(); refreshCharHighlight(); },
     onLangMethodChange, setOrientInvert, updateResultModeUI,
     testToggle, testNext, toggleView, toggleLang, setFilterParams,
   });

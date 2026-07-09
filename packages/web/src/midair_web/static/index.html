@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Mid-Air Input</title>
+<title>Mid-Air Flick &amp; Drawing Input</title>
 <style>
   :root { --bg:#0f1115; --panel:#1a1d24; --line:#2a2f3a; --fg:#e6e9ef; --muted:#9aa3b2; --accent:#5b8cff; }
   * { box-sizing:border-box; }
@@ -19,7 +19,7 @@
   ============================================================ */
   main {
     display: grid;
-    grid-template-columns: 1fr 292px;
+    grid-template-columns: calc((100dvh - 64px) * 4 / 3 + 24px) 1fr;
     height: calc(100dvh - 44px);
     overflow: hidden;
   }
@@ -31,7 +31,6 @@
     position: relative;
     width: 100%;
     aspect-ratio: 4/3;
-    max-height: calc(100dvh - 44px - 20px);
     border-radius: 10px;
     overflow: hidden;
     border: 1px solid var(--line);
@@ -133,8 +132,8 @@
   input[type=text] { width:100%; padding:6px 9px; border-radius:7px; border:1px solid var(--line);
     background:var(--panel); color:var(--fg); font-size:13px; }
   select { background:var(--panel); color:var(--fg); border:1px solid var(--line);
-    border-radius:6px; padding:3px 6px; font-size:11px; }
-  label.k { color:var(--muted); font-size:11px; }
+    border-radius:6px; padding:3px 6px; font-size:13px; }
+  label.k { color:var(--muted); font-size:13px; }
   canvas { touch-action:none; }
   .hint { color:var(--muted); font-size:10px; line-height:1.5; margin:0; }
   .rp-divider { border:none; border-top:1px solid var(--line); margin:1px 0; }
@@ -142,8 +141,8 @@
   /* ---- カメラ状態 ---- */
   .cam-status { padding:7px 9px; border:1px solid var(--line); border-radius:7px;
     background:rgba(26,29,36,0.75); }
-  .cam-status-head { display:flex; align-items:center; gap:7px; font-size:11px; font-weight:700; }
-  .cam-dot { width:7px; height:7px; border-radius:50%; background:var(--muted); flex:0 0 auto; }
+  .cam-status-head { display:flex; align-items:center; gap:7px; font-size:13px; font-weight:700; }
+  .cam-dot { width:8px; height:8px; border-radius:50%; background:var(--muted); flex:0 0 auto; }
   .cam-status[data-state="loading"] .cam-dot,
   .cam-status[data-state="permission"] .cam-dot,
   .cam-status[data-state="searching"] .cam-dot { background:#ffd15b; }
@@ -153,44 +152,44 @@
   .cam-status[data-state="nohand"] .cam-dot { background:#9aa3b2; }
   .cam-status[data-state="denied"] .cam-dot,
   .cam-status[data-state="error"] .cam-dot { background:#ff5b5b; }
-  .cam-detail { margin-top:2px; color:var(--muted); font-size:10px; line-height:1.4; min-height:13px; }
+  .cam-detail { margin-top:2px; color:var(--muted); font-size:12px; line-height:1.4; min-height:14px; }
   .cam-meter { height:3px; margin-top:4px; border-radius:999px; background:#2a2f3a; overflow:hidden; opacity:0; }
   .cam-meter.active { opacity:1; }
   .cam-meter-bar { width:0%; height:100%; background:var(--accent); transition:width 80ms linear; }
 
   /* ---- モードボタン ---- */
   .mode-buttons { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; }
-  .mode-buttons button { padding:6px 4px; font-size:11px; }
+  .mode-buttons button { padding:6px 4px; font-size:13px; }
   .mode-buttons button.active { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:700; }
-  .mode-row { display:flex; justify-content:space-between; gap:6px; color:var(--muted); font-size:11px; align-items:center; }
-  .mode-row strong { color:var(--fg); font-size:11px; }
+  .mode-row { display:flex; justify-content:space-between; gap:6px; color:var(--muted); font-size:13px; align-items:center; }
+  .mode-row strong { color:var(--fg); font-size:13px; }
   .mode-unassigned { color:#ffd15b; font-weight:700; }
-  #gesture { color:var(--accent); font-size:11px; font-weight:600; }
+  #gesture { color:var(--accent); font-size:13px; font-weight:600; }
   .orient-val { font-weight:700; color:var(--muted); }
   .orient-val.orient-palm { color:#5b8cff; }
   .orient-val.orient-back { color:#ffd15b; }
 
   /* ---- JP/EN 設定 ---- */
   .jp-cfg { }
-  .jp-cfg-title { color:var(--muted); font-size:10px; font-weight:700; margin:5px 0 2px; }
-  .jp-cfg-th { display:flex; align-items:center; gap:5px; font-size:10px; color:var(--muted); margin:2px 0; }
+  .jp-cfg-title { color:var(--muted); font-size:14px; font-weight:700; margin:5px 0 2px; }
+  .jp-cfg-th { display:flex; align-items:center; gap:5px; font-size:14px; color:var(--muted); margin:2px 0; }
   .jp-cfg-thlab { flex:0 0 68px; }
   .jp-cfg-th input[type=range] { flex:1; min-width:0; }
   .jp-cfg-thval { flex:0 0 34px; text-align:right; color:var(--fg); font-variant-numeric:tabular-nums; }
-  .jp-cfg-legend { color:#d6dbe6; font-size:10px; line-height:1.4; }
+  .jp-cfg-legend { color:#d6dbe6; font-size:14px; line-height:1.4; }
   .jp-cfg-legend b { color:#fff; font-weight:800; }
-  .jp-flick-table { margin-top:2px; font-size:11px; width:100%; }
-  .jp-flick-row { display:grid; grid-template-columns:50px repeat(5,1fr); gap:1px 2px;
-    padding:2px 1px; border-bottom:1px solid rgba(255,255,255,0.04); }
+  .jp-flick-table { margin-top:2px; font-size:15px; width:100%; }
+  .jp-flick-row { display:grid; grid-template-columns:70px repeat(5,1fr); gap:1px 3px;
+    padding:0 1px; height:30px; align-items:center; border-bottom:1px solid rgba(255,255,255,0.04); }
   .jp-flick-row > span { text-align:center; }
-  .jp-flick-hdr { color:var(--muted); font-size:9px; font-weight:700; padding-bottom:3px; }
-  .jp-flick-key { text-align:left !important; color:var(--muted); font-size:10px; font-weight:700; }
+  .jp-flick-hdr { color:var(--muted); font-size:13px; font-weight:700; padding-bottom:3px; }
+  .jp-flick-key { text-align:left !important; color:var(--muted); font-size:14px; font-weight:700; }
   .jp-flick-key b { color:var(--fg); }
-  .jp-cfg-row { display:flex; align-items:center; gap:4px; font-size:10px; margin:2px 0; flex-wrap:wrap; }
+  .jp-cfg-row { display:flex; align-items:center; gap:4px; font-size:12px; margin:2px 0; flex-wrap:wrap; }
   .jp-cfg-rowlabel { flex:0 0 auto; min-width:26px; color:var(--fg); font-weight:700; }
   .jp-cfg-table { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:2px 4px; margin-top:3px; }
   .jp-cfg-pair { min-width:0; display:flex; align-items:baseline; gap:4px; padding:4px 6px;
-    border:1px solid #3b4250; border-radius:4px; background:rgba(26,29,36,0.85); font-size:11px; }
+    border:1px solid #3b4250; border-radius:4px; background:rgba(26,29,36,0.85); font-size:12px; }
   .jp-cfg-pair b { color:#fff; font-weight:800; white-space:nowrap; }
   .jp-cfg-pair span { color:#d6dbe6; font-weight:800; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -198,11 +197,11 @@
   .jp-cfg-disp, .jp-cfg-edit { display:inline-flex; gap:5px; flex-wrap:wrap; align-items:center; }
   .jp-cfg-on { color:#5bff8c; font-weight:700; }
   .jp-cfg-off { color:#5a6270; }
-  .jp-cfg-btn { padding:2px 6px; font-size:10px; }
-  .jp-cfg-msg { color:#ffd15b; font-size:9px; }
+  .jp-cfg-btn { padding:2px 6px; font-size:11px; }
+  .jp-cfg-msg { color:#ffd15b; font-size:10px; }
   .jp-cfg-fixed { color:var(--muted); }
   .jp-map { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:2px 6px;
-    color:var(--muted); font-size:10px; }
+    color:var(--muted); font-size:12px; }
   .jp-map b { color:var(--fg); }
 
   /* ---- 絵文字グリッド ---- */
@@ -252,11 +251,9 @@
 </head>
 <body>
 <header>
-  <h1>Mid-Air Input</h1>
+  <h1>Mid-Air Flick &amp; Drawing Input</h1>
   <div style="display:flex;gap:7px;align-items:center">
-    <a href="/game" class="view-toggle" style="color:var(--fg);text-decoration:none;font-size:13px;font-weight:600">タイピングゲーム →</a>
-    <button id="langToggle" class="view-toggle" onclick="toggleLang()">EN</button>
-    <button id="viewToggle" class="view-toggle" onclick="toggleView()">テストページ →</button>
+    <a href="/game" class="view-toggle" style="color:var(--fg);text-decoration:none;font-size:13px;font-weight:600">Game Mode →</a>
   </div>
 </header>
 
@@ -295,7 +292,6 @@
   <div id="rightPanel">
     <div class="row">
       <button class="primary" id="camBtn" onclick="toggleCam()" data-i18n="btn.camStart">カメラ開始</button>
-      <span id="gesture">—</span>
     </div>
 
     <div class="cam-status" id="camStatus" data-state="idle">
@@ -351,45 +347,6 @@
     <div id="status"></div>
     <div id="grid" class="grid"></div>
 
-    <hr class="rp-divider" />
-
-    <div class="mode-row">
-      <span data-i18n="label.langMotion">言語切替</span>
-      <select id="langMethodSel" onchange="onLangMethodChange(this.value)">
-        <option value="off" data-i18n="opt.langoff">なし</option>
-        <option value="holdback" data-i18n="opt.holdback">手の甲0.5秒</option>
-        <option value="flip" selected data-i18n="opt.flip">ひっくり返す</option>
-      </select>
-    </div>
-    <div class="mode-row">
-      <span data-i18n="label.orient">手の向き</span>
-      <span id="orientLabel" class="orient-val">—</span>
-    </div>
-    <div class="mode-row">
-      <span data-i18n="label.orientInvert">検出が逆のとき</span>
-      <label class="k" style="display:flex;gap:4px;align-items:center;cursor:pointer">
-        <input type="checkbox" id="orientInvert" onchange="setOrientInvert(this.checked)" />
-        <span data-i18n="label.invertCheck">反転</span>
-      </label>
-    </div>
-    <div style="font-size:9px;font-weight:700;color:var(--muted);margin-top:2px">OneEuro フィルタ</div>
-    <div class="jp-cfg-th">
-      <span class="jp-cfg-thlab">minCutoff</span>
-      <input type="range" min="0.1" max="10" step="0.1" value="10" id="oefMinCutoff"
-        oninput="document.getElementById('oefMinCutoffVal').textContent=parseFloat(this.value).toFixed(1);setFilterParams(parseFloat(this.value),parseFloat(document.getElementById('oefBeta').value))" />
-      <span class="jp-cfg-thval" id="oefMinCutoffVal">10.0</span>
-    </div>
-    <div class="jp-cfg-th">
-      <span class="jp-cfg-thlab">beta</span>
-      <input type="range" min="0" max="1" step="0.01" value="0.01" id="oefBeta"
-        oninput="document.getElementById('oefBetaVal').textContent=parseFloat(this.value).toFixed(2);setFilterParams(parseFloat(document.getElementById('oefMinCutoff').value),parseFloat(this.value))" />
-      <span class="jp-cfg-thval" id="oefBetaVal">0.01</span>
-    </div>
-
-    <p class="hint" data-i18n-html="hint.main">
-      ・🔁 <b>言語切替</b> = 手を開いたまま手のひら→手の甲へ裏返す（日本語→英語→絵文字）<br>
-      ・指を折って入力中は言語切替しない
-    </p>
 
     <!-- テストページ (toggleView で表示) -->
     <div id="inputTestPanel" class="test-panel" style="display:none">

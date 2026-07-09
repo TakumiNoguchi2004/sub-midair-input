@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mid-Air Flick &amp; Drawing Input — Game Mode</title>
+<style>
+  :root { --bg:#0f1115; --panel:#1a1d24; --line:#2a2f3a; --fg:#e6e9ef; --muted:#9aa3b2; --accent:#5b8cff; --good:#5bff8c; --bad:#ff5b5b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--fg); }
+  header { height:44px; padding:0 18px; border-bottom:1px solid var(--line);
+    display:flex; justify-content:space-between; align-items:center; gap:12px; }
+  header h1 { margin:0; font-size:15px; font-weight:700; }
+  header a { color:var(--fg); font-size:13px; font-weight:600; text-decoration:none; }
+  header a:hover { filter:brightness(1.15); }
+
+  main {
+    display: grid;
+    grid-template-columns: calc((100dvh - 64px) * 4 / 3 + 24px) 1fr;
+    height: calc(100dvh - 44px);
+    overflow: hidden;
+  }
+
+  /* ---- 左列: カメラ ---- */
+  #cameraCol { padding:10px 12px; height:100%; overflow:hidden; }
+  .cam-wrap {
+    position: relative;
+    width: 100%; aspect-ratio: 4/3;
+    border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: #000;
+  }
+  .cam-wrap video, .cam-wrap canvas { position: absolute; inset:0; width:100%; height:100%; border:none; }
+  .cam-wrap video { visibility:hidden; }
+  .cam-wrap #pad { background:#fff; }
+  .cam-wrap #overlay { background:transparent; transform:scaleX(-1); pointer-events:none; }
+  .cam-wrap #padCursor { background:transparent; pointer-events:none; }
+
+  /* プレイ中だけ表示するオーバーレイ。idle 中は #idleOverlay に一本化する
+     (body.playing の有無だけが唯一の真実 = 状態の残留バグを構造的に防ぐ) */
+  #targetBar, #inputBar { display:none; }
+  body.playing #targetBar, body.playing #inputBar { display:flex; }
+  #idleOverlay { display:flex; }
+  body.playing #idleOverlay { display:none; }
+
+  /* お題オーバーレイ: カメラ上部。お題(中央)とタイマー(右)を横並びに配置する */
+  #targetBar {
+    position:absolute; top:0; left:0; right:0; z-index:10;
+    padding:12px 16px; align-items:center; gap:14px;
+    background:rgba(8,10,16,0.72); backdrop-filter:blur(16px) saturate(1.3);
+    border-bottom:1px solid rgba(255,255,255,0.07);
+  }
+  #targetTextWrap { flex:1; min-width:0; text-align:center; }
+  #gameTargetHint { font-size:16px; color:var(--muted); margin-bottom:3px; min-height:19px; }
+  #gameTarget { font-size:50px; font-weight:800; letter-spacing:0.02em; line-height:1.15;
+    word-break:break-all; }
+  #gameTarget .tgt-done { color:var(--good); }
+  #gameTarget .tgt-pending { color:var(--fg); }
+
+  /* タイマー: カメラ右上に大きく表示 (残り10秒以下で赤点滅) */
+  #timerBadge {
+    flex:0 0 auto; min-width:92px; text-align:center;
+    background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.14); border-radius:12px;
+    padding:6px 14px 8px;
+  }
+  #gameTimerLabel { font-size:38px; font-weight:800; line-height:1.05; font-variant-numeric:tabular-nums; color:#fff; }
+  #gameTimerBarWrap { height:5px; margin-top:6px; border-radius:999px; background:rgba(255,255,255,0.14); overflow:hidden; }
+  #gameTimerBar { height:100%; width:100%; background:var(--accent); transition:width 100ms linear; }
+  #timerBadge.warn { border-color:rgba(255,91,91,0.6); animation:timerPulse 0.6s infinite; }
+  #timerBadge.warn #gameTimerLabel { color:var(--bad); }
+  #timerBadge.warn #gameTimerBar { background:var(--bad); }
+  @keyframes timerPulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
+
+  /* 入力バー: カメラ下部 */
+  #inputBar {
+    position:absolute; bottom:0; left:0; right:0; z-index:10;
+    padding:10px 16px 12px; flex-direction:column; gap:4px;
+    background:rgba(8,10,16,0.72); backdrop-filter:blur(16px) saturate(1.3);
+    border-top:1px solid rgba(255,255,255,0.07);
+  }
+  /* #jpFlickOutput はフリック入力エンジンが直接書き込む実体(値の保持先)。
+     見た目は #gameTypedDisplay 側で色分け表示するので本体は非表示にする。
+     (#jpCharHighlight は core.js が毎フレーム独自に書き込むため、ゲーム側の色分け表示には使わない) */
+  #jpFlickOutput { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; }
+  .jp-char-highlight { display:none; }
+  #gameTypedDisplay { width:100%; min-height:1.5em; max-height:3em; overflow-y:auto;
+    font-size:26px; font-weight:700; line-height:1.5; word-break:break-all; }
+  #gameTypedDisplay .hit { color:#fff; }
+  #gameTypedDisplay .miss { color:var(--bad); text-decoration:underline; }
+  #jpFlickStatus { color:rgba(255,255,255,0.55); font-size:14px; line-height:1.4; min-height:18px; }
+
+  /* ---- idle オーバーレイ: カメラ中央に大きく表示 (開始前 = プロンプト / 終了後 = 結果) ---- */
+  #idleOverlay {
+    position:absolute; inset:0; z-index:20;
+    flex-direction:column; align-items:center; justify-content:center; gap:18px;
+    background:rgba(6,7,10,0.80); backdrop-filter:blur(6px);
+    padding:24px; text-align:center;
+  }
+  #idlePrompt { font-size:22px; font-weight:700; color:var(--muted); }
+  #idleResult.hidden { display:none; }
+  #idleResult { display:flex; flex-direction:column; align-items:center; gap:16px; }
+  .result-title { font-size:16px; font-weight:700; color:var(--muted); letter-spacing:0.12em; text-transform:uppercase; }
+  .result-box { text-align:center; }
+  .result-box .big { font-size:100px; font-weight:800; color:var(--accent); line-height:1; }
+  .result-box .label { font-size:15px; color:var(--muted); margin-top:6px; }
+  .result-stats { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; max-width:560px; }
+  .result-stats .stat-row { min-width:140px; font-size:14px; padding:9px 14px; }
+  .result-stats .stat-row b { font-size:26px; }
+
+  /* ---- 右パネル ---- */
+  #rightPanel { padding:10px 12px; border-left:1px solid var(--line); height:100%; overflow-y:auto;
+    display:flex; flex-direction:column; gap:7px; }
+
+  /* ---- 汎用 ---- */
+  .row { display:flex; gap:7px; align-items:center; }
+  .rp-divider { border:none; border-top:1px solid var(--line); margin:1px 0; }
+
+  /* ---- トースト ---- */
+  .mode-toast { position:fixed; left:50%; top:18px; transform:translateX(-50%) translateY(-12px);
+    background:var(--accent); color:#fff; font-weight:700; font-size:14px; padding:9px 16px;
+    border-radius:10px; box-shadow:0 6px 24px rgba(0,0,0,0.35); opacity:0; pointer-events:none;
+    transition:opacity .2s, transform .2s; z-index:50; }
+  .mode-toast.muted { background:#5b6472; }
+  .mode-toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+  button { padding:7px 11px; border-radius:8px; border:1px solid var(--line);
+    background:var(--panel); color:var(--fg); font-size:13px; cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  button:hover { filter:brightness(1.1); }
+  button.active { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:700; }
+  button.danger { border-color:rgba(255,91,91,0.5); color:var(--bad); font-weight:700; }
+
+  /* ---- モードボタン ---- */
+  .mode-buttons { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; }
+  .mode-buttons button { padding:6px 4px; font-size:13px; }
+  .mode-buttons button.active { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:700; }
+  .mode-row { display:flex; justify-content:space-between; gap:6px; color:var(--muted); font-size:13px; align-items:center; }
+  .mode-row strong { color:var(--fg); font-size:13px; }
+
+  /* startScreen(設定) と gameScreen(プレイ中) は body.playing だけで排他表示する */
+  #startScreen { display:flex; flex-direction:column; gap:10px; }
+  body.playing #startScreen { display:none; }
+  #gameScreen { display:none; flex-direction:column; gap:10px; }
+  body.playing #gameScreen { display:flex; }
+
+  .mode-pick { display:flex; flex-direction:column; gap:6px; }
+  .mode-pick button { width:100%; text-align:left; }
+
+  .stat-row { display:flex; justify-content:space-between; font-size:14px; color:var(--muted);
+    padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:var(--panel); }
+  .stat-row b { color:var(--fg); font-size:18px; font-variant-numeric:tabular-nums; }
+
+  #comboFlash { text-align:center; font-size:13px; color:var(--good); min-height:17px; font-weight:700; }
+
+  .cfg-title { color:var(--muted); font-size:11px; font-weight:700; margin:4px 0 2px; }
+
+  /* ---- 運指表 (japanese.js / english.js が中身を描画) ---- */
+  .jp-cfg { }
+  .jp-cfg-title { color:var(--muted); font-size:14px; font-weight:700; margin:5px 0 2px; }
+  .jp-cfg-th { display:flex; align-items:center; gap:5px; font-size:14px; color:var(--muted); margin:2px 0; }
+  .jp-cfg-thlab { flex:0 0 68px; }
+  .jp-cfg-th input[type=range] { flex:1; min-width:0; }
+  .jp-cfg-thval { flex:0 0 34px; text-align:right; color:var(--fg); font-variant-numeric:tabular-nums; }
+  .jp-cfg-legend { color:#d6dbe6; font-size:14px; line-height:1.4; }
+  .jp-cfg-legend b { color:#fff; font-weight:800; }
+  .jp-flick-table { margin-top:2px; font-size:15px; width:100%; }
+  .jp-flick-row { display:grid; grid-template-columns:70px repeat(5,1fr); gap:1px 3px;
+    padding:0 1px; height:30px; align-items:center; border-bottom:1px solid rgba(255,255,255,0.04); }
+  .jp-flick-row > span { text-align:center; }
+  .jp-flick-hdr { color:var(--muted); font-size:13px; font-weight:700; padding-bottom:3px; }
+  .jp-flick-key { text-align:left !important; color:var(--muted); font-size:14px; font-weight:700; }
+  .jp-flick-key b { color:var(--fg); }
+  .jp-cfg-row { display:flex; align-items:center; gap:4px; font-size:12px; margin:2px 0; flex-wrap:wrap; }
+  .jp-cfg-table { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:2px 4px; margin-top:3px; }
+  .jp-cfg-pair { min-width:0; display:flex; align-items:baseline; gap:4px; padding:4px 6px;
+    border:1px solid #3b4250; border-radius:4px; background:rgba(26,29,36,0.85); font-size:12px; }
+  .jp-cfg-pair b { color:#fff; font-weight:800; white-space:nowrap; }
+  .jp-cfg-pair span { color:#d6dbe6; font-weight:800; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .jp-cfg-btn { padding:2px 6px; font-size:11px; }
+  .jp-cfg-msg { color:#ffd15b; font-size:10px; }
+  .jp-map { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:2px 6px;
+    color:var(--muted); font-size:12px; }
+  .jp-map b { color:var(--fg); }
+
+  #gesture { color:var(--accent); font-size:13px; font-weight:600; }
+
+  /* ---- カメラ状態 ---- */
+  .cam-status { padding:7px 9px; border:1px solid var(--line); border-radius:7px; background:rgba(26,29,36,0.75); }
+  .cam-status-head { display:flex; align-items:center; gap:7px; font-size:13px; font-weight:700; }
+  .cam-dot { width:8px; height:8px; border-radius:50%; background:var(--muted); flex:0 0 auto; }
+  .cam-status[data-state="loading"] .cam-dot,
+  .cam-status[data-state="permission"] .cam-dot { background:#ffd15b; }
+  .cam-status[data-state="detecting"] .cam-dot,
+  .cam-status[data-state="holding"] .cam-dot { background:#5bff8c; }
+  .cam-status[data-state="nohand"] .cam-dot { background:#9aa3b2; }
+  .cam-status[data-state="denied"] .cam-dot,
+  .cam-status[data-state="error"] .cam-dot { background:#ff5b5b; }
+  .cam-detail { margin-top:2px; color:var(--muted); font-size:12px; line-height:1.4; min-height:14px; }
+  .cam-meter { height:3px; margin-top:4px; border-radius:999px; background:#2a2f3a; overflow:hidden; opacity:0; }
+  .cam-meter.active { opacity:1; }
+  .cam-meter-bar { width:0%; height:100%; background:var(--accent); transition:width 80ms linear; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Mid-Air Flick &amp; Drawing Input — Game Mode</h1>
+  <a href="/">← Home</a>
+</header>
+
+<main>
+  <!-- ===== 左列: カメラ ===== -->
+  <div id="cameraCol">
+    <div class="cam-wrap">
+      <video id="cam" playsinline muted></video>
+      <canvas id="pad" width="640" height="480"></canvas>
+      <canvas id="overlay" width="640" height="480"></canvas>
+      <canvas id="padCursor" width="640" height="480"></canvas>
+
+      <div id="targetBar">
+        <div id="targetTextWrap">
+          <div id="gameTargetHint">&nbsp;</div>
+          <div id="gameTarget"></div>
+        </div>
+        <div id="timerBadge">
+          <div id="gameTimerLabel">60</div>
+          <div id="gameTimerBarWrap"><div id="gameTimerBar"></div></div>
+        </div>
+      </div>
+
+      <!-- idle中 (開始前 or 終了後) はここにプロンプトか直前の結果を大きく出す -->
+      <div id="idleOverlay">
+        <div id="idlePrompt">Pick a mode and press Start to begin</div>
+        <div id="idleResult" class="hidden">
+          <div class="result-title">⏱ Time's Up!</div>
+          <div class="result-box">
+            <div class="big" id="resultWords">0</div>
+            <div class="label">Words Completed</div>
+          </div>
+          <div class="result-stats">
+            <div class="stat-row"><span>Characters Typed</span><b id="resultChars">0</b></div>
+            <div class="stat-row"><span>Mistakes</span><b id="resultMiss">0</b></div>
+            <div class="stat-row"><span>Accuracy</span><b id="resultAcc">0%</b></div>
+            <div class="stat-row"><span>Chars/sec</span><b id="resultCps">0.0</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="inputBar">
+        <textarea id="jpFlickOutput" rows="1" spellcheck="false" readonly tabindex="-1" aria-hidden="true"></textarea>
+        <div id="gameTypedDisplay">&nbsp;</div>
+        <div id="jpFlickStatus"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 右パネル (常設。プレイ中/非プレイ中で中身だけ切り替わる) ===== -->
+  <div id="rightPanel">
+    <div class="row">
+      <button class="primary" id="camBtn" onclick="toggleCam()">Start Camera</button>
+    </div>
+    <div class="cam-status" id="camStatus" data-state="idle">
+      <div class="cam-status-head">
+        <span class="cam-dot"></span>
+        <span id="camStateLabel">Idle</span>
+      </div>
+      <div class="cam-detail" id="camStateDetail">Camera is stopped</div>
+      <div class="cam-meter" id="camMeter"><div class="cam-meter-bar" id="camMeterBar"></div></div>
+    </div>
+
+    <hr class="rp-divider" />
+
+    <div class="mode-row">
+      <span>Language</span>
+      <strong id="inputModeLabel">Japanese</strong>
+    </div>
+    <div class="mode-buttons">
+      <button id="modeJapanese" class="active" onclick="setInputMode('japanese')">Japanese</button>
+      <button id="modeEnglish" onclick="setInputMode('english')">English</button>
+      <button id="modeEmoji" onclick="setInputMode('emoji')">Emoji</button>
+    </div>
+
+    <hr class="rp-divider" />
+
+    <!-- ---- 設定 (非プレイ中は常にこれが見えている) ---- -->
+    <div id="startScreen">
+      <div class="cfg-title" style="font-size:14px;color:var(--fg);margin-bottom:4px">Game Settings</div>
+      <div class="cfg-title">Target Words</div>
+      <div class="mode-pick">
+        <button id="pickJapanese" class="active" data-mode="japanese">Japanese only</button>
+        <button id="pickEnglish" data-mode="english">English only</button>
+        <button id="pickBoth" data-mode="both">Japanese + English</button>
+      </div>
+      <div class="cfg-title">Time Limit</div>
+      <div class="mode-pick">
+        <button id="pick10" data-dur="10">10s</button>
+        <button id="pick30" class="active" data-dur="30">30s</button>
+        <button id="pick60" data-dur="60">60s</button>
+      </div>
+      <button class="primary" id="startBtn" style="margin-top:6px;font-size:18px;padding:14px 18px">Start</button>
+      <p style="font-size:12px;color:var(--muted);line-height:1.6">
+        Type the prompt shown using mid-air flick gestures before time runs out.
+        Camera access is required — it starts automatically when you press Start.
+      </p>
+    </div>
+
+    <!-- ---- プレイ中 ---- -->
+    <div id="gameScreen">
+      <div class="stat-row"><span>Words Completed</span><b id="statWords">0</b></div>
+      <div class="stat-row"><span>Mistakes</span><b id="statMiss">0</b></div>
+      <div class="stat-row"><span>Characters Typed</span><b id="statChars">0</b></div>
+      <div id="comboFlash"></div>
+      <button class="danger" id="quitBtn">⏹ Quit &amp; See Result</button>
+      <div id="jpFingerConfig" class="jp-cfg"></div>
+      <div id="enRef" class="jp-cfg"></div>
+    </div>
+  </div>
+</main>
+
+<script type="module" src="/assets/js/core.js"></script>
+<script type="module" src="/assets/js/game/gameplay.js"></script>
+
+<!-- core.js が init() 内で参照するが本ゲームでは使わない要素 (非表示で存在だけさせる) -->
+<input id="q" type="text" style="display:none" />
+</body>
+</html>
